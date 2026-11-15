@@ -58,50 +58,58 @@ impl From<Suggestion> for OsSuggestion {
 }
 
 /// A configured riti input context.
+///
+/// riti's internal state is not thread-safe (RefCell), so we serialize all
+/// access with a Mutex — UniFFI objects must be Send + Sync.
 pub struct OsRiti {
-    ctx: RitiContext,
+    ctx: std::sync::Mutex<RitiContext>,
 }
 
 impl OsRiti {
     pub fn new(database_dir: String, user_dir: String, layout: String) -> Self {
         let config = build_config(&database_dir, &user_dir, &layout);
         OsRiti {
-            ctx: RitiContext::new_with_config(&config),
+            ctx: std::sync::Mutex::new(RitiContext::new_with_config(&config)),
         }
     }
 
     /// Feed a key press (riti keycode) and get the updated suggestion state.
     pub fn suggest_for_key(&self, key: i32, modifier: i32, selection: i32) -> OsSuggestion {
-        self.ctx
-            .get_suggestion_for_key(key as u16, modifier as u8, selection as u8)
+        let ctx = self.ctx.lock().unwrap();
+        ctx.get_suggestion_for_key(key as u16, modifier as u8, selection as u8)
             .into()
     }
 
     /// A candidate from the suggestion list was committed.
     /// Ends the current input session.
     pub fn candidate_committed(&self, index: i32) {
-        self.ctx.candidate_committed(index as usize);
+        let ctx = self.ctx.lock().unwrap();
+        ctx.candidate_committed(index as usize);
     }
 
     /// A BackSpace event. With `ctrl` = true, deletes the whole word
     /// currently in composition.
     pub fn backspace(&self, ctrl: bool) -> OsSuggestion {
-        self.ctx.backspace_event(ctrl).into()
+        let ctx = self.ctx.lock().unwrap();
+        ctx.backspace_event(ctrl).into()
     }
 
     /// End the current input session (dropping the composition).
     pub fn finish_session(&self) {
-        self.ctx.finish_input_session();
+        let ctx = self.ctx.lock().unwrap();
+        ctx.finish_input_session();
     }
 
     pub fn is_session_active(&self) -> bool {
-        self.ctx.ongoing_input_session()
+        let ctx = self.ctx.lock().unwrap();
+        ctx.ongoing_input_session()
     }
 
     /// Reconfigure the engine (e.g. layout changed) without dropping learned data.
-    pub fn update_engine(&mut self, database_dir: String, user_dir: String, layout: String) {
+    pub fn update_engine(&self, database_dir: String, user_dir: String, layout: String) {
         let config = build_config(&database_dir, &user_dir, &layout);
-        self.ctx.update_engine(&config);
+        let ctx = self.ctx.lock().unwrap();
+        ctx.update_engine(&config);
     }
 }
 
