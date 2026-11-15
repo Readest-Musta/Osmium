@@ -53,7 +53,7 @@ fi
 echo "==> Using NDK at $ANDROID_NDK_HOME"
 
 echo "==> Building riti for Android (arm64-v8a, armeabi-v7a, x86_64)"
-(cd "$NATIVE" && cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -p 24 build --release)
+(cd "$NATIVE" && cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 build --release)
 
 echo "==> Copying .so files into jniLibs"
 for abi in arm64-v8a armeabi-v7a x86_64; do
