@@ -21,9 +21,9 @@ cargo build --release --manifest-path "$NATIVE/Cargo.toml"
 
 mkdir -p "$BINDINGS"
 echo "==> Generating Kotlin bindings"
-cargo run --manifest-path "$NATIVE/Cargo.toml" --bin uniffi-bindgen -- \
-    generate --library "$NATIVE/target/release/libosmium_native.so" \
-    --language kotlin --out-dir "$BINDINGS"
+(cd "$NATIVE" && cargo run --bin uniffi-bindgen -- \
+    generate --library target/release/libosmium_native.so \
+    --language kotlin --out-dir "$BINDINGS")
 
 # Force the generated Kotlin to load our .so name.
 GEN_FILE=$(find "$BINDINGS" -name '*.kt' | head -n1)
