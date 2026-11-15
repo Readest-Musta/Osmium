@@ -12,3 +12,6 @@ crate-type = ["lib", "staticlib", "cdylib"]
 [dependencies]
 riti = { git = "https://github.com/OpenBangla/riti", rev = "e1fd5a809b0c3bf9c36e6f076ef6d558f9663fba" }
 uniffi = { version = "0.25.3", features = ["build", "cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.25.3", features = ["build"] }
