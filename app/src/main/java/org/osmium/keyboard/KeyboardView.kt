@@ -138,7 +138,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val row = LinearLayout(context).apply { orientation = HORIZONTAL }
 
         val shiftKey = OsmiumKey(context).apply {
-            weight = 1.4f
             isAction = true
             setOnClickListener {
                 if (shift && !capsLock) {
@@ -165,7 +164,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         }
 
         val backspace = OsmiumKey(context).apply {
-            weight = 1.4f
             isAction = true
             tag = "backspace"
             text = "⌫"
@@ -176,9 +174,11 @@ class KeyboardView(context: Context) : LinearLayout(context) {
             setOnTouchListener { v, ev ->
                 when (ev.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        val r = Runnable {
-                            listener?.onBackspace()
-                            handler.postDelayed(it, 60)
+                        val r: Runnable = object : Runnable {
+                            override fun run() {
+                                listener?.onBackspace()
+                                handler.postDelayed(this, 60)
+                            }
                         }
                         repeat = r
                         handler.postDelayed(r, 350)
@@ -200,7 +200,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         val row = LinearLayout(context).apply { orientation = HORIZONTAL }
 
         val emojiKey = OsmiumKey(context).apply {
-            weight = 1f
             isAction = true
             tag = "emoji"
             text = "☺"
@@ -210,7 +209,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(emojiKey, rowParams(1f))
 
         val modeKey = OsmiumKey(context).apply {
-            weight = 1f
             isAction = true
             tag = "mode"
             setOnClickListener { listener?.onModeCycle() }
@@ -219,7 +217,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(modeKey, rowParams(1f))
 
         val comma = OsmiumKey(context).apply {
-            weight = 1f
             tag = ","
             text = ","
             setCharAction(",", digitRow = false)
@@ -227,7 +224,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(comma, rowParams(1f))
 
         val space = OsmiumKey(context).apply {
-            weight = 4f
             isAction = true
             tag = "space"
             text = "␣"
@@ -237,7 +233,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(space, rowParams(4f))
 
         val period = OsmiumKey(context).apply {
-            weight = 1f
             tag = "."
             text = "."
             setCharAction(".", digitRow = false)
@@ -245,7 +240,6 @@ class KeyboardView(context: Context) : LinearLayout(context) {
         row.addView(period, rowParams(1f))
 
         val enter = OsmiumKey(context).apply {
-            weight = 1.4f
             isAction = true
             tag = "enter"
             text = "⏎"
