@@ -163,3 +163,6 @@ pub fn keycode_for_char(ch: String) -> i32 {
 pub fn modifier_shift() -> i32 {
     riti::context::MODIFIER_SHIFT as i32
 }
+
+// Include the UniFFI scaffolding generated from src/osmium.udl by build.rs.
+uniffi::include_scaffolding!("osmium");

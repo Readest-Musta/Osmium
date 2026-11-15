@@ -95,15 +95,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
 
     /** Shows the incognito badge next to the language button. */
     fun setIncognito(active: Boolean) {
-        if (active && incognitoIndicator == null) {
-            incognitoIndicator = TextView(context).apply {
-                text = "🕵"
-                gravity = Gravity.CENTER
-                textSize = 13f
-                addView(this, LayoutParams(dp(28), LayoutParams.MATCH_PARENT))
-            }
-        }
-        incognitoIndicator?.visibility = if (active) VISIBLE else GONE
+        incognitoIndicator.visibility = if (active) VISIBLE else GONE
     }
 
     fun update(suggestion: OsSuggestion) {
