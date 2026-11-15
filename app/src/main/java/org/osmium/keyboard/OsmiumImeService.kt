@@ -134,10 +134,19 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     // ------------------------------------------------------------------
-    // Key handling (KeyboardView.Listener)
+    // Key handling (KeyboardView.Listener) — all guarded so a bug can never
+    // kill the keyboard; errors are shown on the keyboard itself instead.
     // ------------------------------------------------------------------
 
-    override fun onKey(code: String, shifted: Boolean) {
+    private fun guarded(body: () -> Unit) {
+        try {
+            body()
+        } catch (t: Throwable) {
+            setInputView(errorView(t))
+        }
+    }
+
+    override fun onKey(code: String, shifted: Boolean) = guarded {
         haptic()
         val char = if (shifted) code.uppercase() else code
         when (mode) {
@@ -147,20 +156,20 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
-    override fun onShiftTap() { haptic() }
+    override fun onShiftTap() = guarded { haptic() }
 
-    override fun onSpace() {
+    override fun onSpace() = guarded {
         haptic()
-        val ic = currentInputConnection ?: return
+        val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
         }
         ic.commitText(" ", 1)
     }
 
-    override fun onBackspace() {
+    override fun onBackspace() = guarded {
         haptic()
-        val ic = currentInputConnection ?: return
+        val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             // Riti owns the composition; let it recompute.
             val s = engine.backspace(ctrl = false)
@@ -171,9 +180,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
-    override fun onEnter() {
+    override fun onEnter() = guarded {
         haptic()
-        val ic = currentInputConnection ?: return
+        val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
         }
@@ -181,18 +190,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
     }
 
-    override fun onModeCycle() {
+    override fun onModeCycle() = guarded {
         haptic()
         cycleMode()
     }
 
-    override fun onEmojiToggle() {
+    override fun onEmojiToggle() = guarded {
         haptic()
-        val panel = emojiPanel ?: return
+        val panel = emojiPanel ?: return@guarded
         panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
     }
 
-    override fun onNumberRowToggle() {
+    override fun onNumberRowToggle() = guarded {
         haptic()
         keyboardView?.toggleNumberRow()
     }
@@ -201,9 +210,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     // Suggestions
     // ------------------------------------------------------------------
 
-    private fun onSuggestion(index: Int) {
-        val candidate = latest.candidates.getOrNull(index) ?: return
-        val ic = currentInputConnection ?: return
+    private fun onSuggestion(index: Int) = guarded {
+        val candidate = latest.candidates.getOrNull(index) ?: return@guarded
+        val ic = currentInputConnection ?: return@guarded
         ic.finishComposingText()
         ic.commitText(candidate, 1)
         engine.candidateCommitted(index)

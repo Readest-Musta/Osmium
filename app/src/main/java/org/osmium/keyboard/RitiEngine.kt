@@ -112,19 +112,32 @@ class RitiEngine(private val context: Context) {
     /** Sends a key press to riti and returns the updated suggestion state. */
     fun suggest(keyChar: String, selection: Int = 0): OsSuggestion {
         val ctx = riti ?: return EMPTY
-        val code = keycodeForChar(keyChar)
-        return if (code == 0) EMPTY else ctx.suggestForKey(code, 0, selection)
+        return try {
+            val code = keycodeForChar(keyChar)
+            if (code == 0) EMPTY else ctx.suggestForKey(code, 0, selection)
+        } catch (t: Throwable) {
+            initError = "suggest('$keyChar') failed (${t.javaClass.simpleName}): ${t.message}"
+            EMPTY
+        }
     }
 
     /** Backspace event inside an active session. */
     fun backspace(ctrl: Boolean = false): OsSuggestion {
         val ctx = riti ?: return EMPTY
-        return ctx.backspace(ctrl)
+        return try {
+            ctx.backspace(ctrl)
+        } catch (t: Throwable) {
+            initError = "backspace failed (${t.javaClass.simpleName}): ${t.message}"
+            EMPTY
+        }
     }
 
     /** A suggestion candidate was committed (ends the session). */
     fun candidateCommitted(index: Int) {
-        riti?.candidateCommitted(index)
+        try {
+            riti?.candidateCommitted(index)
+        } catch (_: Throwable) {
+        }
     }
 
     /** Drop the current composition. */
