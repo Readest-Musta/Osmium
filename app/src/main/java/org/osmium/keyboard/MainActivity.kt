@@ -106,6 +106,31 @@ class MainActivity : Activity() {
             setPadding(pad, pad, pad, pad)
         }
 
+        val diagLabel = TextView(this).apply {
+            text = "Diagnostics"
+            textSize = 15f
+            setPadding(pad, pad, pad, pad / 4)
+        }
+
+        val diagView = TextView(this).apply {
+            textSize = 13f
+            setTextIsSelectable(true)
+            setPadding(pad, 0, pad, pad)
+            text = run {
+                val sb = StringBuilder()
+                for (check in Diagnostics.run(this@MainActivity)) {
+                    sb.append(if (check.ok) "✅ " else "❌ ")
+                        .append(check.name)
+                        .append(if (check.ok) "" else " — ${check.detail}")
+                        .append("\n")
+                        .append(if (check.ok) "     " else "     ")
+                        .append(check.detail)
+                        .append("\n\n")
+                }
+                sb.toString()
+            }
+        }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(title)
@@ -116,6 +141,8 @@ class MainActivity : Activity() {
             addView(radioGroup)
             addView(hapticsSwitch)
             addView(incognitoSwitch)
+            addView(diagLabel)
+            addView(diagView)
             addView(learnMore)
         }
 

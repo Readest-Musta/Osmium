@@ -37,6 +37,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             "probhat" -> KeyboardMode.PROBHAT
             else -> KeyboardMode.AVRO
         }
+        // Initialise the engine for the saved mode (was missing in v0.1).
+        engine.useLayout(layoutFor(mode))
     }
 
     // ------------------------------------------------------------------
@@ -46,6 +48,25 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreateInputView(): View {
+        return try {
+            buildInputView()
+        } catch (t: Throwable) {
+            // Never leave the user with a blank keyboard — show the error on screen.
+            errorView(t)
+        }
+    }
+
+    private fun errorView(t: Throwable): View {
+        val text = android.widget.TextView(this).apply {
+            text = "Osmium error — please report this:\n\n${t.stackTraceToString().take(2000)}"
+            setPadding(32, 32, 32, 32)
+            setTextIsSelectable(true)
+            textSize = 12f
+        }
+        return android.widget.ScrollView(this).apply { addView(text) }
+    }
+
+    private fun buildInputView(): View {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -255,11 +276,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             KeyboardMode.ENGLISH -> KeyboardMode.AVRO
         }
 
-        val layout = when (mode) {
-            KeyboardMode.AVRO -> "avro_phonetic"
-            KeyboardMode.PROBHAT -> probhatPath()
-            KeyboardMode.ENGLISH -> null
-        }
+        val layout = layoutFor(mode)
         if (layout != null) {
             engine.useLayout(layout)
             Prefs.setBanglaScheme(
@@ -275,9 +292,14 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         suggestionBar?.clear()
     }
 
-    private fun probhatPath(): String {
-        RitiEngine.ensureData(this)
-        return java.io.File(filesDir, "riti/Probhat.json").absolutePath
+    /** riti layout identifier for a mode, or null for English. */
+    private fun layoutFor(mode: KeyboardMode): String? = when (mode) {
+        KeyboardMode.AVRO -> "avro_phonetic"
+        KeyboardMode.PROBHAT -> {
+            RitiEngine.ensureData(this)
+            java.io.File(filesDir, "riti/Probhat.json").absolutePath
+        }
+        KeyboardMode.ENGLISH -> null
     }
 
     private fun launchSetup() {

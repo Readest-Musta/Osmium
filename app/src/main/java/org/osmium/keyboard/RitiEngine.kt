@@ -21,6 +21,10 @@ class RitiEngine(private val context: Context) {
     private var currentLayout: String? = null
     private var currentIncognito = false
 
+    /** Last engine initialization failure, if any (surfaced in diagnostics). */
+    var initError: String? = null
+        private set
+
     companion object {
         private const val ASSET_DIR = "riti"
         private val DATA_FILES = listOf(
@@ -48,7 +52,11 @@ class RitiEngine(private val context: Context) {
     }
 
     init {
-        ensureData(context)
+        try {
+            ensureData(context)
+        } catch (t: Throwable) {
+            initError = "asset copy failed: ${t.message ?: t}"
+        }
     }
 
     /**
@@ -66,12 +74,17 @@ class RitiEngine(private val context: Context) {
             userDir.apply { mkdirs() }
         }
         val layout = currentLayout ?: "avro_phonetic"
-        riti = OsRiti(
-            databaseDir = dbDir.absolutePath,
-            userDir = effectiveUserDir.absolutePath,
-            layout = layout,
-        )
-        currentLayout = layout
+        try {
+            riti = OsRiti(
+                databaseDir = dbDir.absolutePath,
+                userDir = effectiveUserDir.absolutePath,
+                layout = layout,
+            )
+            currentLayout = layout
+        } catch (t: Throwable) {
+            riti = null
+            initError = "engine init failed (${t.javaClass.simpleName}): ${t.message ?: t}"
+        }
     }
 
     /**
@@ -81,12 +94,19 @@ class RitiEngine(private val context: Context) {
      */
     fun useLayout(layout: String) {
         if (layout == currentLayout && riti != null) return
-        riti = OsRiti(
-            databaseDir = dbDir.absolutePath,
-            userDir = userDir.absolutePath,
-            layout = layout,
-        )
-        currentLayout = layout
+        try {
+            riti = OsRiti(
+                databaseDir = dbDir.absolutePath,
+                userDir = userDir.absolutePath,
+                layout = layout,
+            )
+            currentLayout = layout
+            initError = null
+        } catch (t: Throwable) {
+            riti = null
+            currentLayout = null
+            initError = "engine init failed (${t.javaClass.simpleName}): ${t.message ?: t}"
+        }
     }
 
     /** Sends a key press to riti and returns the updated suggestion state. */
