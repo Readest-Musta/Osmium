@@ -19,4 +19,5 @@ app/src/uniffi/
 
 # OS
 .DS_Store
-.github/workflows/  # needs 'workflow' scope token; kept locally
+# GitHub workflow needs a token with 'workflow' scope to push; kept locally.
+.github/workflows/
