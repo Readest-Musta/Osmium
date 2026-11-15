@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+captures/
+
+# Rust / native
+native/target/
+app/src/main/jniLibs/
+app/src/uniffi/
+
+# Generated
+*.apk
+*.aab
+
+# OS
+.DS_Store
+.github/workflows/  # needs 'workflow' scope token; kept locally

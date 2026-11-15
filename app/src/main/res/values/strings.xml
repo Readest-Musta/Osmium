@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Osmium</string>
+    <string name="ime_name">Osmium Keyboard</string>
+    <string name="privacy_note">Osmium never connects to the internet. No analytics, no tracking, ever.</string>
+</resources>

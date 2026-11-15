@@ -1,0 +1,29 @@
+namespace osmium {
+    // Maps an ASCII character (as typed on the physical layout) to the keycode
+    // riti expects. Shifted characters map to riti's shifted keycodes.
+    i32 keycode_for_char(string ch);
+    // Modifier flag for Shift (riti::MODIFIER_SHIFT).
+    i32 modifier_shift();
+};
+
+dictionary OsSuggestion {
+    // Text composed before the currently-being-typed word (previous words).
+    string auxiliary;
+    // Suggestion candidates for the current word.
+    sequence<string> candidates;
+    // Index of the currently selected candidate.
+    i32 selection;
+    // True when there is nothing to compose.
+    boolean is_empty;
+};
+
+interface OsRiti {
+    constructor(string database_dir, string user_dir, string layout);
+
+    OsSuggestion suggest_for_key(i32 key, i32 modifier, i32 selection);
+    void candidate_committed(i32 index);
+    OsSuggestion backspace(boolean ctrl);
+    void finish_session();
+    boolean is_session_active();
+    void update_engine(string database_dir, string user_dir, string layout);
+};

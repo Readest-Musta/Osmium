@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="keyboard_bg">#17191F</color>
+    <color name="key_normal">#262A35</color>
+    <color name="key_pressed">#3A4050</color>
+    <color name="key_action">#1E2530</color>
+    <color name="key_text">#E8EAF0</color>
+    <color name="key_text_hint">#8A90A0</color>
+    <color name="accent">#4F8CFF</color>
+    <color name="bar_bg">#1E2128</color>
+    <color name="panel_bg">#17191F</color>
+</resources>
