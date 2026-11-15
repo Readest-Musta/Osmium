@@ -38,7 +38,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             else -> KeyboardMode.AVRO
         }
         // Initialise the engine for the saved mode (was missing in v0.1).
-        engine.useLayout(layoutFor(mode))
+        layoutFor(mode)?.let { engine.useLayout(it) }
     }
 
     // ------------------------------------------------------------------
