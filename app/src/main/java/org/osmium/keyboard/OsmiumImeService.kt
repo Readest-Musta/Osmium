@@ -213,8 +213,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun onSuggestion(index: Int) = guarded {
         val candidate = latest.candidates.getOrNull(index) ?: return@guarded
         val ic = currentInputConnection ?: return@guarded
+        // Replace the composing region with the picked candidate in one step.
+        ic.setComposingText(candidate, 1)
         ic.finishComposingText()
-        ic.commitText(candidate, 1)
         engine.candidateCommitted(index)
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
@@ -239,8 +240,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             suggestionBar?.clear()
             return
         }
-        val selected = s.candidates.getOrNull(s.selection) ?: ""
-        val composed = s.auxiliary + selected
+        // The composing text is ONLY the selected Bengali candidate — the
+        // romanized auxiliary text is shown in the suggestion bar, never
+        // typed into the field (same as OpenBangla's IBus engine).
+        val composed = s.candidates.getOrNull(s.selection) ?: ""
         if (composed.isEmpty()) {
             clearComposition(ic)
             suggestionBar?.clear()
@@ -254,9 +257,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun commitCurrentCandidate() {
         val ic = currentInputConnection ?: return
         val selected = latest.candidates.getOrNull(latest.selection) ?: ""
-        ic.finishComposingText()
         if (selected.isNotEmpty()) {
-            ic.commitText(selected, 1)
+            // Replace the composing region with the final text in one step,
+            // then commit it (finishComposingText on stale text would
+            // duplicate it into the field).
+            ic.setComposingText(selected, 1)
+            ic.finishComposingText()
             engine.candidateCommitted(latest.selection)
         }
         latest = RitiEngine.EMPTY
