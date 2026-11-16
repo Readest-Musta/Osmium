@@ -106,7 +106,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private data class ProbhatKey(val n: String, val s: String, val a: String?)
 
     init {
-        rows = LinearLayout(context).apply { orientation = VERTICAL }
+        rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(rows, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ))
@@ -129,9 +129,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     ).toInt()
 
     private fun buildRow(codes: List<String>, digitRow: Boolean = false): LinearLayout {
-        val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
         for (code in codes) {
-            val key = OsmiumKey(context, OsmiumKey.Kind.CHAR)
+            val key = OsmiumKey(context, OsmiumKeyKind.CHAR)
             key.tag = code
             attachKeyTouch(key, code, digitRow)
             row.addView(
@@ -194,15 +194,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     key.isPressed = true
-                    cancelLongPress()
+                    cancelPendingLongPress()
                     val entries = popupsFor(code, digitRow)
                     if (entries.isNotEmpty()) {
-                        pendingLongPress = Runnable {
+                        val r = Runnable {
                             pendingLongPress = null
                             showPopup(key, entries)
                             listener?.onFeedback()
                         }
-                        handler.postDelayed(pendingLongPress, LONG_PRESS_MS)
+                        pendingLongPress = r
+                        handler.postDelayed(r, LONG_PRESS_MS)
                     }
                     true
                 }
@@ -213,7 +214,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     key.isPressed = false
                     val wasPopup = popup != null
-                    cancelLongPress()
+                    cancelPendingLongPress()
                     if (ev.actionMasked == MotionEvent.ACTION_UP) {
                         if (wasPopup) {
                             commitHighlightedChip()
@@ -231,7 +232,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     private var pendingLongPress: Runnable? = null
 
-    private fun cancelLongPress() {
+    private fun cancelPendingLongPress() {
         pendingLongPress?.let { handler.removeCallbacks(it) }
         pendingLongPress = null
     }
@@ -269,7 +270,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         val anchorTop = locKey[1] - locSelf[1]
 
         val panel = LinearLayout(context).apply {
-            orientation = HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
             background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
                 setColor(pal.popupBg)
@@ -346,9 +347,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     // ------------------------------------------------------------------
 
     private fun buildActionMiddleRow(): LinearLayout {
-        val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 
-        val shiftKey = OsmiumKey(context, OsmiumKey.Kind.ACTION).apply {
+        val shiftKey = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             setOnClickListener {
                 if (shift && !capsLock) {
                     capsLock = true // double tap -> caps lock
@@ -367,13 +368,13 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         row.addView(shiftKey, rowParams(1.4f))
 
         for (code in listOf("z", "x", "c", "v", "b", "n", "m")) {
-            val key = OsmiumKey(context, OsmiumKey.Kind.CHAR)
+            val key = OsmiumKey(context, OsmiumKeyKind.CHAR)
             key.tag = code
             attachKeyTouch(key, code, digitRow = false)
             row.addView(key, rowParams(1f))
         }
 
-        val backspace = OsmiumKey(context, OsmiumKey.Kind.ACTION).apply {
+        val backspace = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "backspace"
             text = "⌫"
             setOnClickListener { listener?.onBackspace() }
@@ -405,9 +406,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun buildBottomRow(): LinearLayout {
-        val row = LinearLayout(context).apply { orientation = HORIZONTAL }
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
 
-        val emojiKey = OsmiumKey(context, OsmiumKey.Kind.ACTION).apply {
+        val emojiKey = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "emoji"
             text = "☺"
             setOnClickListener { listener?.onEmojiToggle() }
@@ -415,31 +416,31 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         keys.add(emojiKey)
         row.addView(emojiKey, rowParams(1f))
 
-        val modeKey = OsmiumKey(context, OsmiumKey.Kind.ACTION).apply {
+        val modeKey = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "mode"
             setOnClickListener { listener?.onModeCycle() }
         }
         keys.add(modeKey)
         row.addView(modeKey, rowParams(1f))
 
-        val comma = OsmiumKey(context, OsmiumKey.Kind.CHAR)
+        val comma = OsmiumKey(context, OsmiumKeyKind.CHAR)
         comma.tag = ","
         attachKeyTouch(comma, ",", digitRow = false)
         row.addView(comma, rowParams(1f))
 
-        val space = OsmiumKey(context, OsmiumKey.Kind.ACTION).apply {
+        val space = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "space"
             setOnClickListener { listener?.onSpace() }
         }
         keys.add(space)
         row.addView(space, rowParams(4f))
 
-        val period = OsmiumKey(context, OsmiumKey.Kind.CHAR)
+        val period = OsmiumKey(context, OsmiumKeyKind.CHAR)
         period.tag = "."
         attachKeyTouch(period, ".", digitRow = false)
         row.addView(period, rowParams(1f))
 
-        val enter = OsmiumKey(context, OsmiumKey.Kind.ACCENT).apply {
+        val enter = OsmiumKey(context, OsmiumKeyKind.ACCENT).apply {
             tag = "enter"
             text = "⏎"
             setOnClickListener { listener?.onEnter() }
@@ -520,17 +521,15 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     /** A single key. */
     @SuppressLint("ViewConstructor")
-    inner class OsmiumKey(context: Context, val kind: Kind) : TextView(context) {
-
-        enum class Kind { CHAR, ACTION, ACCENT }
+    inner class OsmiumKey(context: Context, val kind: OsmiumKeyKind) : TextView(context) {
 
         init {
             gravity = Gravity.CENTER
             textSize = when (kind) {
-                Kind.CHAR -> 18f
+                OsmiumKeyKind.CHAR -> 18f
                 else -> 16f
             }
-            typeface = if (kind == Kind.CHAR) Typeface.DEFAULT else Typeface.DEFAULT_BOLD
+            typeface = if (kind == OsmiumKeyKind.CHAR) Typeface.DEFAULT else Typeface.DEFAULT_BOLD
             isClickable = true
             isFocusable = true
             refreshStyle()
@@ -538,11 +537,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
         fun refreshStyle() {
             background = when (kind) {
-                Kind.ACCENT -> fillDrawable(pal.accent, pal.accent)
-                Kind.ACTION -> stateDrawable(pal.keyAction, pal.keyPressed)
+                OsmiumKeyKind.ACCENT -> fillDrawable(pal.accent, pal.accent)
+                OsmiumKeyKind.ACTION -> stateDrawable(pal.keyAction, pal.keyPressed)
                 else -> stateDrawable(pal.keyNormal, pal.keyPressed)
             }
-            setTextColor(if (kind == Kind.ACTION) pal.keyTextHint else pal.keyText)
+            setTextColor(if (kind == OsmiumKeyKind.ACTION) pal.keyTextHint else pal.keyText)
         }
 
         private fun round(color: Int): GradientDrawable = GradientDrawable().apply {
@@ -560,3 +559,6 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         }
     }
 }
+
+/** Visual role of a key. */
+enum class OsmiumKeyKind { CHAR, ACTION, ACCENT }
