@@ -537,7 +537,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
         fun refreshStyle() {
             background = when (kind) {
-                OsmiumKeyKind.ACCENT -> fillDrawable(pal.accent, pal.accent)
+                OsmiumKeyKind.ACCENT -> fillDrawable(pal.accent)
                 OsmiumKeyKind.ACTION -> stateDrawable(pal.keyAction, pal.keyPressed)
                 else -> stateDrawable(pal.keyNormal, pal.keyPressed)
             }
