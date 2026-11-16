@@ -223,6 +223,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun sendToRiti(char: String) {
         val s = engine.suggest(char, selection = latest.selection)
+        if (s.isEmpty && engine.initError != null) {
+            // Engine is broken — show why instead of silently doing nothing.
+            setInputView(errorView(IllegalStateException("riti engine: ${engine.initError}")))
+            return
+        }
         latest = s
         render(s)
     }

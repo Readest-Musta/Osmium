@@ -72,6 +72,7 @@ pub struct OsRiti {
 
 impl OsRiti {
     pub fn new(database_dir: String, user_dir: String, layout: String) -> Self {
+        ensure_home(&user_dir);
         let config = build_config(&database_dir, &user_dir, &layout);
         OsRiti {
             ctx: std::sync::Mutex::new(WrapSync(RitiContext::new_with_config(&config))),
@@ -113,9 +114,19 @@ impl OsRiti {
 
     /// Reconfigure the engine (e.g. layout changed) without dropping learned data.
     pub fn update_engine(&self, database_dir: String, user_dir: String, layout: String) {
+        ensure_home(&user_dir);
         let config = build_config(&database_dir, &user_dir, &layout);
         let mut ctx = self.ctx.lock().unwrap();
         ctx.0.update_engine(&config);
+    }
+}
+
+/// riti's `Config::default()` resolves the fallback user dir from
+/// XDG_DATA_HOME/HOME and unwraps — but Android IME processes have neither
+/// env var set, which would panic. Seed HOME if missing.
+fn ensure_home(user_dir: &str) {
+    if std::env::var_os("HOME").is_none() {
+        std::env::set_var("HOME", user_dir);
     }
 }
 
