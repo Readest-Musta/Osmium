@@ -54,6 +54,7 @@ fn main() {
         ('.', 2, '়'),
     ];
     for (ch, modifier, expect) in altgr_cases {
+        probhat.finish_session();
         let code = keycode_for_char(ch.to_string());
         let s = probhat.suggest_for_key(code, modifier, 0);
         let got = s.candidates.first().cloned().unwrap_or_default();
@@ -67,6 +68,7 @@ fn main() {
 
     // Normal Probhat letters still work unmodified.
     for (ch, expect) in [('q', 'দ'), ('a', 'া'), ('.', '।')] {
+        probhat.finish_session();
         let code = keycode_for_char(ch.to_string());
         let s = probhat.suggest_for_key(code, 0, 0);
         let got = s.candidates.first().cloned().unwrap_or_default();
