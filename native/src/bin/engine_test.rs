@@ -1,6 +1,7 @@
 //! Host-side smoke test: runs the exact same engine flow as the Android IME,
 //! through the real osmium-native wrapper (OsRiti), including candidate
-//! reordering. Usage: cargo run --bin engine_test -- <path-to-riti-data-dir>
+//! reordering and Probhat AltGr keys.
+//! Usage: cargo run --bin engine_test -- <path-to-riti-data-dir>
 
 use osmium_native::keycode_for_char;
 use osmium_native::OsRiti;
@@ -10,6 +11,7 @@ fn main() {
     let user_dir = "/tmp/osmium-test-user";
     std::fs::create_dir_all(user_dir).unwrap();
 
+    // ---------------- Avro phonetic flow ----------------
     let riti = OsRiti::new(dir.clone(), user_dir.to_string(), "avro_phonetic".to_string());
 
     let text = "ami bang banglay gan gai";
@@ -36,6 +38,44 @@ fn main() {
             "first candidate must be Bengali-script, got {:?}",
             s.candidates.first()
         );
+    }
+
+    // ---------------- Probhat layout + AltGr layer ----------------
+    let probhat_path = format!("{dir}/Probhat.json");
+    let probhat = OsRiti::new(dir.clone(), user_dir.to_string(), probhat_path);
+
+    // (key char, modifier, expected output) — MODIFIER_ALT_GR = 2.
+    let altgr_cases = [
+        ('a', 2, 'ঌ'),
+        ('s', 2, 'ৡ'),
+        ('d', 2, 'ৄ'),
+        ('h', 2, 'ঽ'),
+        ('0', 2, '৸'),
+        ('.', 2, '়'),
+    ];
+    for (ch, modifier, expect) in altgr_cases {
+        let code = keycode_for_char(ch.to_string());
+        let s = probhat.suggest_for_key(code, modifier, 0);
+        let got = s.candidates.first().cloned().unwrap_or_default();
+        assert_eq!(
+            got.chars().next(),
+            Some(expect),
+            "Probhat AltGr '{ch}' (mod {modifier}) should give '{expect}', got '{got}'"
+        );
+        println!("probhat altgr '{ch}' -> {got:?} OK");
+    }
+
+    // Normal Probhat letters still work unmodified.
+    for (ch, expect) in [('q', 'দ'), ('a', 'া'), ('.', '।')] {
+        let code = keycode_for_char(ch.to_string());
+        let s = probhat.suggest_for_key(code, 0, 0);
+        let got = s.candidates.first().cloned().unwrap_or_default();
+        assert_eq!(
+            got.chars().next(),
+            Some(expect),
+            "Probhat '{ch}' should give '{expect}', got '{got}'"
+        );
+        println!("probhat normal '{ch}' -> {got:?} OK");
     }
 
     // Backspace flow.

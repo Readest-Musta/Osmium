@@ -7,7 +7,7 @@ import android.content.SharedPreferences
 object Prefs {
     private const val FILE = "osmium_prefs"
 
-    private fun sp(context: Context): SharedPreferences =
+    fun sp(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     /** Which Bangla typing scheme is active: "avro" or "probhat". */

@@ -26,7 +26,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
 
     init {
         orientation = HORIZONTAL
-        setBackgroundColor(context.resources.getColor(R.color.bar_bg, null))
+        setBackgroundColor(Theme.palette(context).barBg)
         gravity = Gravity.CENTER_VERTICAL
 
         incognitoIndicator = TextView(context).apply {
@@ -46,7 +46,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
                 gravity = Gravity.CENTER
                 maxLines = 1
                 textSize = 16f
-                setTextColor(context.resources.getColor(R.color.key_text, null))
+                setTextColor(Theme.palette(context).keyText)
                 setPadding(dp(4), 0, dp(4), 0)
                 visibility = View.INVISIBLE
                 setOnClickListener {
@@ -68,6 +68,19 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** Re-styles for the current theme. */
+    fun applyTheme() {
+        val pal = Theme.palette(context)
+        setBackgroundColor(pal.barBg)
+        for (chip in chips) chip.setTextColor(pal.keyText)
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            if (child is TextView && child !== incognitoIndicator && child !in chips) {
+                child.setTextColor(pal.keyTextHint)
+            }
+        }
+    }
+
     private fun dp(v: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
     ).toInt()
@@ -81,7 +94,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             maxLines = 1
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(context.resources.getColor(R.color.key_text_hint, null))
+            setTextColor(Theme.palette(context).keyTextHint)
             isClickable = true
         }
 

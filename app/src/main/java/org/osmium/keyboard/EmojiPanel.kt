@@ -32,7 +32,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(context.resources.getColor(R.color.panel_bg, null))
+        setBackgroundColor(Theme.palette(context).panelBg)
 
         val tabBar = LinearLayout(context).apply { orientation = HORIZONTAL }
         for (cat in EmojiCategory.values()) {
@@ -40,6 +40,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
                 gravity = Gravity.CENTER
                 textSize = 20f
                 text = cat.label
+                setTextColor(Theme.palette(context).keyText)
                 setOnClickListener {
                     selected = cat
                     refresh()
@@ -63,6 +64,13 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         }
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         refresh()
+    }
+
+    /** Re-styles for the current theme. */
+    fun applyTheme() {
+        val pal = Theme.palette(context)
+        setBackgroundColor(pal.panelBg)
+        for (tab in tabs) tab.setTextColor(pal.keyText)
     }
 
     private fun dp(v: Int): Int = TypedValue.applyDimension(

@@ -21,6 +21,11 @@ import uniffi.osmium.OsSuggestion
  */
 class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
+    /** riti MODIFIER_ALT_GR (see riti::context). */
+    private companion object {
+        const val MODIFIER_ALT_GR = 2
+    }
+
     private lateinit var engine: RitiEngine
     private var keyboardView: KeyboardView? = null
     private var suggestionBar: SuggestionBar? = null
@@ -29,6 +34,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var mode = KeyboardMode.AVRO
     private var latest = RitiEngine.EMPTY
     private var incognito = false
+    private var appliedThemeKey: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +73,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun buildInputView(): View {
+        appliedThemeKey = Theme.key(this)
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -111,6 +118,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // Rebuild the input view if the theme setting changed since last time.
+        if (Theme.key(this) != appliedThemeKey) {
+            setInputView(onCreateInputView())
+        }
         // Determine incognito state: user preference OR field privacy flags.
         val noLearning = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         val isPassword = isPasswordField(info)
@@ -146,15 +157,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
-    override fun onKey(code: String, shifted: Boolean) = guarded {
+    override fun onKey(code: String, shifted: Boolean, altgr: Boolean) = guarded {
         haptic()
         val char = if (shifted) code.uppercase() else code
+        val modifier = if (altgr) MODIFIER_ALT_GR else 0
         when (mode) {
             KeyboardMode.ENGLISH -> currentInputConnection?.commitText(char, 1)
-            KeyboardMode.AVRO -> sendToRiti(char)
-            KeyboardMode.PROBHAT -> sendToRiti(char)
+            KeyboardMode.AVRO -> sendToRiti(char, modifier)
+            KeyboardMode.PROBHAT -> sendToRiti(char, modifier)
         }
     }
+
+    override fun onFeedback() = guarded { haptic() }
 
     override fun onShiftTap() = guarded { haptic() }
 
@@ -222,8 +236,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         haptic()
     }
 
-    private fun sendToRiti(char: String) {
-        val s = engine.suggest(char, selection = latest.selection)
+    private fun sendToRiti(char: String, modifier: Int = 0) {
+        val s = engine.suggest(char, modifier = modifier, selection = latest.selection)
         if (s.isEmpty && engine.initError != null) {
             // Engine is broken — show why instead of silently doing nothing.
             setInputView(errorView(IllegalStateException("riti engine: ${engine.initError}")))

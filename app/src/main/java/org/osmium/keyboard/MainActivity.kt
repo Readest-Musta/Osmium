@@ -81,6 +81,34 @@ class MainActivity : Activity() {
             }
         }
 
+        val themeLabel = TextView(this).apply {
+            text = "Keyboard theme:"
+            textSize = 15f
+            setPadding(pad, pad, pad, pad / 4)
+        }
+
+        val themeGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(pad, 0, pad, 0)
+            val follow = RadioButton(this@MainActivity).apply { text = "System"; id = 2001 }
+            val dark = RadioButton(this@MainActivity).apply { text = "Dark"; id = 2002 }
+            val light = RadioButton(this@MainActivity).apply { text = "Light"; id = 2003 }
+            addView(follow); addView(dark); addView(light)
+            when (Theme.mode(this@MainActivity)) {
+                "dark" -> check(2002)
+                "light" -> check(2003)
+                else -> check(2001)
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                val m = when (checkedId) {
+                    2002 -> "dark"
+                    2003 -> "light"
+                    else -> "system"
+                }
+                Theme.setMode(this@MainActivity, m)
+            }
+        }
+
         val hapticsSwitch = Switch(this).apply {
             text = "Key press vibration"
             isChecked = Prefs.hapticsEnabled(this@MainActivity)
@@ -139,6 +167,8 @@ class MainActivity : Activity() {
             addView(pickButton)
             addView(schemeLabel)
             addView(radioGroup)
+            addView(themeLabel)
+            addView(themeGroup)
             addView(hapticsSwitch)
             addView(incognitoSwitch)
             addView(diagLabel)

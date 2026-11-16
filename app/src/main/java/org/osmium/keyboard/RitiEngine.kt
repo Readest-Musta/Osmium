@@ -110,11 +110,11 @@ class RitiEngine(private val context: Context) {
     }
 
     /** Sends a key press to riti and returns the updated suggestion state. */
-    fun suggest(keyChar: String, selection: Int = 0): OsSuggestion {
+    fun suggest(keyChar: String, modifier: Int = 0, selection: Int = 0): OsSuggestion {
         val ctx = riti ?: return EMPTY
         return try {
             val code = keycodeForChar(keyChar)
-            if (code == 0) EMPTY else ctx.suggestForKey(code, 0, selection)
+            if (code == 0) EMPTY else ctx.suggestForKey(code, modifier, selection)
         } catch (t: Throwable) {
             initError = "suggest('$keyChar') failed (${t.javaClass.simpleName}): ${t.message}"
             EMPTY
