@@ -30,12 +30,28 @@ impl From<Suggestion> for OsSuggestion {
                 suggestions,
                 selection,
                 ..
-            } => OsSuggestion {
-                auxiliary,
-                candidates: suggestions,
-                selection: selection as i32,
-                is_empty: false,
-            },
+            } => {
+                // riti ranks emoji matches above dictionary/phonetic words
+                // (fine for a desktop candidate window, wrong for a mobile
+                // keyboard that commits the top suggestion on space).
+                // Reorder: Bengali-script candidates first, everything else
+                // after — stable, so riti's own ordering is kept per group.
+                let mut order: Vec<usize> = (0..suggestions.len()).collect();
+                order.sort_by_key(|&i| if starts_with_bengali(&suggestions[i]) { 0 } else { 1 });
+                let candidates: Vec<String> =
+                    order.iter().map(|&i| suggestions[i].clone()).collect();
+                // Remap riti's selection index into the reordered list.
+                let selection = order
+                    .iter()
+                    .position(|&i| i == selection as usize)
+                    .unwrap_or(0) as i32;
+                OsSuggestion {
+                    auxiliary,
+                    candidates,
+                    selection,
+                    is_empty: false,
+                }
+            }
             Suggestion::Single { suggestion, .. } => {
                 if suggestion.is_empty() {
                     OsSuggestion {
@@ -55,6 +71,15 @@ impl From<Suggestion> for OsSuggestion {
             }
         }
     }
+}
+
+/// True if the first visible character (skipping joiners like ZWNJ/ZWJ)
+/// is in the Bengali Unicode block (U+0980..U+09FF).
+fn starts_with_bengali(text: &str) -> bool {
+    text.chars()
+        .find(|c| !matches!(c, '\u{200C}' | '\u{200D}'))
+        .map(|c| ('\u{0980}'..='\u{09FF}').contains(&c))
+        .unwrap_or(false)
 }
 
 /// A configured riti input context.
