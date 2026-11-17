@@ -297,6 +297,24 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    override fun onDeleteWord() = guarded {
+        haptic()
+        val ic = currentInputConnection ?: return@guarded
+        if (engine.isSessionActive()) commitCurrentCandidate()
+        val before = ic.getTextBeforeCursor(5000, 0)?.toString().orEmpty()
+        val count = TextNav.previousWordStart(before)
+        if (count > 0) ic.deleteSurroundingText(count, 0)
+    }
+
+    override fun onDeleteToLineStart() = guarded {
+        haptic()
+        val ic = currentInputConnection ?: return@guarded
+        if (engine.isSessionActive()) commitCurrentCandidate()
+        val before = ic.getTextBeforeCursor(5000, 0)?.toString().orEmpty()
+        val count = TextNav.lineStartLength(before)
+        if (count > 0) ic.deleteSurroundingText(count, 0)
+    }
+
     override fun onEnter() = guarded {
         haptic()
         val ic = currentInputConnection ?: return@guarded

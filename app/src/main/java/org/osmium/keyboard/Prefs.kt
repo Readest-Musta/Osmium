@@ -88,6 +88,19 @@ object Prefs {
         sp(context).edit().putInt(KEY_GLIDE_SENS, dp).apply()
     }
 
+    /** Swipe gestures on backspace: left deletes a word, down deletes to line start. */
+    fun swipeDeleteEnabled(context: Context): Boolean =
+        sp(context).getBoolean(KEY_SWIPE_DELETE_ENABLED, true)
+    fun setSwipeDeleteEnabled(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_SWIPE_DELETE_ENABLED, value).apply()
+    }
+
+    /** Distance (dp) per backspace swipe step: gesture threshold and words per swipe. */
+    fun swipeStepDp(context: Context): Int = sp(context).getInt(KEY_SWIPE_STEP_DP, 60)
+    fun setSwipeStepDp(context: Context, dp: Int) {
+        sp(context).edit().putInt(KEY_SWIPE_STEP_DP, dp).apply()
+    }
+
     // ------------------------------------------------------------------
     // Appearance
     // ------------------------------------------------------------------
@@ -336,6 +349,8 @@ object Prefs {
     private const val KEY_AUTOCAP = "auto_capitalize"
     private const val KEY_GLIDE_CURSOR = "glide_cursor_enabled"
     private const val KEY_GLIDE_SENS = "glide_sensitivity_dp"
+    private const val KEY_SWIPE_DELETE_ENABLED = "swipe_delete_enabled"
+    private const val KEY_SWIPE_STEP_DP = "swipe_step_dp"
     private const val KEY_HEIGHT_SCALE = "key_height_scale"
     private const val KEY_RADIUS_DP = "key_radius_dp"
     private const val KEY_FONT_SCALE = "key_font_scale"

@@ -49,6 +49,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         fun onShiftTap()
         fun onSpace()
         fun onBackspace()
+        /** Delete the word before the cursor (backspace swipe left). */
+        fun onDeleteWord()
+        /** Delete from the cursor to the start of the line (backspace swipe down). */
+        fun onDeleteToLineStart()
         fun onEnter()
         fun onModeCycle()
         fun onEmojiToggle()
@@ -118,6 +122,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private fun dp(v: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
     ).toInt()
+
+    private fun pxToDp(px: Float): Float = px / resources.displayMetrics.density
 
     // ------------------------------------------------------------------
     // Label loading: bundled Probhat, or a user-installed layout
@@ -508,26 +514,85 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             tag = "backspace"
             text = "⌫"
             setOnClickListener { listener?.onBackspace() }
-            // Hold to repeat-delete.
-            var repeat: Runnable? = null
+            // Hold to repeat-delete; swipe left for word delete, down for line delete.
+            var repeatRunnable: Runnable? = null
+            var downX = 0f
+            var downY = 0f
+            var wordStartX = 0f
+            var swipeFired = false
+            var lineDeleted = false
             setOnTouchListener { v, ev ->
-                when (ev.action) {
+                when (ev.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        downX = ev.rawX
+                        downY = ev.rawY
+                        wordStartX = ev.rawX
+                        swipeFired = false
+                        lineDeleted = false
                         val r: Runnable = object : Runnable {
                             override fun run() {
                                 listener?.onBackspace()
                                 handler.postDelayed(this, repeatMs)
                             }
                         }
-                        repeat = r
+                        repeatRunnable = r
                         handler.postDelayed(r, longPressMs)
+                        false // let the view handle a plain tap via OnClickListener
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        repeat?.let { handler.removeCallbacks(it) }
-                        repeat = null
+                    MotionEvent.ACTION_MOVE -> {
+                        if (Prefs.swipeDeleteEnabled(context) && !lineDeleted) {
+                            val threshold = Prefs.swipeStepDp(context).toFloat()
+                            val dxDp = pxToDp(ev.rawX - downX)
+                            val dyDp = pxToDp(ev.rawY - downY)
+                            // classify() treats negative dy as downward; Android dy is positive down.
+                            when (SwipeResolver.classify(dxDp, -dyDp, threshold)) {
+                                SwipeResolver.Action.DELETE_LINE -> {
+                                    repeatRunnable?.let { handler.removeCallbacks(it) }
+                                    repeatRunnable = null
+                                    listener?.onDeleteToLineStart()
+                                    lineDeleted = true
+                                    swipeFired = true
+                                }
+                                SwipeResolver.Action.DELETE_WORD -> {
+                                    val wordDxDp = pxToDp(ev.rawX - wordStartX)
+                                    if (wordDxDp < 0f) {
+                                        val steps = SwipeResolver.stepsFor(wordDxDp, threshold)
+                                        if (steps > 0) {
+                                            if (!swipeFired) {
+                                                repeatRunnable?.let { handler.removeCallbacks(it) }
+                                                repeatRunnable = null
+                                                swipeFired = true
+                                            }
+                                            repeat(steps) { listener?.onDeleteWord() }
+                                            wordStartX = ev.rawX
+                                        }
+                                    }
+                                }
+                                SwipeResolver.Action.NONE -> Unit
+                            }
+                        }
+                        false
                     }
+                    MotionEvent.ACTION_UP -> {
+                        repeatRunnable?.let { handler.removeCallbacks(it) }
+                        repeatRunnable = null
+                        v.isPressed = false
+                        val suppressTap = swipeFired
+                        swipeFired = false
+                        lineDeleted = false
+                        // Consume the event so a swipe is not also treated as a tap.
+                        suppressTap
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        repeatRunnable?.let { handler.removeCallbacks(it) }
+                        repeatRunnable = null
+                        v.isPressed = false
+                        swipeFired = false
+                        lineDeleted = false
+                        false
+                    }
+                    else -> false
                 }
-                false
             }
         }
         keys.add(backspace)
