@@ -45,4 +45,5 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // JNA is required by the UniFFI generated Kotlin bindings.
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+    testImplementation("junit:junit:4.13.2")
 }
