@@ -663,6 +663,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         if (value) relabelAll()
     }
 
+    /** True while either shift or caps lock is engaged. */
+    fun isShiftActive(): Boolean = shift || capsLock
+
     fun relabelAll() {
         val shifted = shift || capsLock
         for (key in keys) {

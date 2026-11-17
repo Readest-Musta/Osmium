@@ -32,6 +32,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var suggestionBar: SuggestionBar? = null
     private var emojiPanel: EmojiPanel? = null
     private var clipboardPanel: ClipboardPanel? = null
+    private var navigationPanel: NavigationPanel? = null
 
     private var mode = KeyboardMode.AVRO
     private var latest = RitiEngine.EMPTY
@@ -118,6 +119,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             }
         }
 
+        navigationPanel = NavigationPanel(this).apply {
+            visibility = View.GONE
+            onAction = { action -> onNavAction(action) }
+        }
+
         container.addView(
             suggestionBar,
             LinearLayout.LayoutParams(
@@ -130,6 +136,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         )
         container.addView(
             clipboardPanel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
+        )
+        container.addView(
+            navigationPanel,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
         )
         container.addView(
@@ -156,6 +166,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         suggestionBar?.clear()
         emojiPanel?.visibility = View.GONE
         clipboardPanel?.visibility = View.GONE
+        navigationPanel?.visibility = View.GONE
         lastWasSpace = false
         autoCapitalizeIfNeeded()
         captureClipboard()
@@ -188,6 +199,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (!clipShowing) {
             clip.refresh()
             emojiPanel?.visibility = View.GONE
+            navigationPanel?.visibility = View.GONE
         }
     }
 
@@ -315,6 +327,138 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (count > 0) ic.deleteSurroundingText(count, 0)
     }
 
+    // ------------------------------------------------------------------
+    // Navigation / editing panel actions
+    // ------------------------------------------------------------------
+
+    /** Dispatches a single action raised by [NavigationPanel]. */
+    private fun onNavAction(action: NavAction) = guarded {
+        haptic()
+        val ic = currentInputConnection ?: return@guarded
+        // Never navigate or edit in the middle of a riti composition.
+        if (engine.isSessionActive()) commitCurrentCandidate()
+
+        when (action) {
+            NavAction.HOME, NavAction.LEFT, NavAction.UP, NavAction.DOWN,
+            NavAction.RIGHT, NavAction.END, NavAction.DOC_START, NavAction.DOC_END -> {
+                sendMovementKey(ic, action)
+            }
+            NavAction.COPY -> {
+                ic.performContextMenuAction(android.R.id.copy)
+                captureClipboard()
+            }
+            NavAction.CUT -> {
+                ic.performContextMenuAction(android.R.id.cut)
+                hideNavigationPanel() // text changed
+            }
+            NavAction.PASTE -> {
+                ic.performContextMenuAction(android.R.id.paste)
+                hideNavigationPanel() // text changed
+            }
+            NavAction.SELECT_ALL -> ic.performContextMenuAction(android.R.id.selectAll)
+            NavAction.SELECT_WORD -> selectWordAtCursor(ic)
+        }
+    }
+
+    private fun hideNavigationPanel() {
+        navigationPanel?.visibility = View.GONE
+    }
+
+    /**
+     * Sends DOWN+UP key events for a movement, then verifies the cursor moved.
+     * Fields that ignore DPAD/MOVE keys are handled with an explicit selection.
+     */
+    private fun sendMovementKey(ic: InputConnection, action: NavAction) {
+        val shiftActive = keyboardView?.isShiftActive() == true
+        val keyCode: Int
+        var meta = 0
+        when (action) {
+            NavAction.LEFT -> keyCode = KeyEvent.KEYCODE_DPAD_LEFT
+            NavAction.RIGHT -> keyCode = KeyEvent.KEYCODE_DPAD_RIGHT
+            NavAction.UP -> keyCode = KeyEvent.KEYCODE_DPAD_UP
+            NavAction.DOWN -> keyCode = KeyEvent.KEYCODE_DPAD_DOWN
+            NavAction.HOME -> keyCode = KeyEvent.KEYCODE_MOVE_HOME
+            NavAction.END -> keyCode = KeyEvent.KEYCODE_MOVE_END
+            NavAction.DOC_START -> {
+                keyCode = KeyEvent.KEYCODE_MOVE_HOME
+                meta = KeyEvent.META_CTRL_ON
+            }
+            NavAction.DOC_END -> {
+                keyCode = KeyEvent.KEYCODE_MOVE_END
+                meta = KeyEvent.META_CTRL_ON
+            }
+            else -> return
+        }
+        // Shift+arrow extends the selection (Document start/end use plain CTRL).
+        if (shiftActive && (action == NavAction.LEFT || action == NavAction.RIGHT)) {
+            meta = meta or KeyEvent.META_SHIFT_ON
+        }
+
+        val before = cursorPosition(ic)
+        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode, meta))
+        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode, meta))
+        val after = cursorPosition(ic)
+        if (before != null && after == before) {
+            fallbackSelection(ic, action, before, shiftActive)
+        }
+    }
+
+    /** setSelection fallback computed from extracted text for fields that ignore key events. */
+    private fun fallbackSelection(
+        ic: InputConnection, action: NavAction, cursor: Int, extend: Boolean
+    ) {
+        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0) ?: return
+        val s = et.text?.toString() ?: return
+        val base = et.startOffset
+        val rel = et.selectionStart.coerceIn(0, s.length)
+        val anchor = cursor // absolute cursor read before the (ignored) key events
+        val target = when (action) {
+            NavAction.LEFT ->
+                if (rel > 0) anchor - Character.charCount(s.codePointBefore(rel)) else return
+            NavAction.RIGHT ->
+                if (rel < s.length) anchor + Character.charCount(s.codePointAt(rel)) else return
+            NavAction.HOME -> base + lineStartAt(s, rel)
+            NavAction.END -> {
+                val nl = s.indexOf('\n', rel)
+                base + if (nl < 0) s.length else nl
+            }
+            NavAction.DOC_START -> base
+            NavAction.DOC_END -> base + s.length
+            NavAction.UP -> {
+                val ls = lineStartAt(s, rel)
+                val prev = s.lastIndexOf('\n', ls - 2)
+                if (prev < 0) base else base + prev + 1
+            }
+            NavAction.DOWN -> {
+                val nl = s.indexOf('\n', rel)
+                if (nl < 0) base + s.length else base + nl + 1
+            }
+            else -> return
+        }
+        if (extend) {
+            ic.setSelection(minOf(anchor, target), maxOf(anchor, target))
+        } else {
+            ic.setSelection(target, target)
+        }
+    }
+
+    /** Start index of the line containing [pos] within [s]. */
+    private fun lineStartAt(s: String, pos: Int): Int {
+        if (pos <= 0) return 0
+        val nl = s.lastIndexOf('\n', pos - 1)
+        return if (nl < 0) 0 else nl + 1
+    }
+
+    /** Selects the single word around the cursor using extracted text. */
+    private fun selectWordAtCursor(ic: InputConnection) {
+        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0) ?: return
+        val s = et.text?.toString() ?: return
+        val rel = et.selectionStart.coerceIn(0, s.length)
+        val range = TextNav.wordRangeAround(s, rel)
+        // Extracted-text offsets are relative to et.startOffset; setSelection is absolute.
+        ic.setSelection(et.startOffset + range.first, et.startOffset + range.last)
+    }
+
     override fun onEnter() = guarded {
         haptic()
         val ic = currentInputConnection ?: return@guarded
@@ -335,7 +479,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val panel = emojiPanel ?: return@guarded
         val showing = panel.visibility == View.VISIBLE
         panel.visibility = if (showing) View.GONE else View.VISIBLE
-        if (!showing) clipboardPanel?.visibility = View.GONE
+        if (!showing) {
+            clipboardPanel?.visibility = View.GONE
+            navigationPanel?.visibility = View.GONE
+        }
     }
 
     override fun onNumberRowToggle() = guarded {
