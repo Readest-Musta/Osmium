@@ -40,6 +40,7 @@ class MainActivity : Activity() {
         const val REQ_IMAGE = 3001
         const val REQ_EXPORT = 3002
         const val REQ_IMPORT = 3003
+        const val REQ_LAYOUT = 3004
 
         /** Colour presets offered in the custom-theme picker. */
         val SWATCHES = listOf(
@@ -61,6 +62,7 @@ class MainActivity : Activity() {
         buildSetupSection()
         buildAppearanceSection()
         buildBehaviourSection()
+        buildLayoutsSection()
         buildBackupSection()
         buildDiagnosticsSection()
         setContentView(
@@ -277,6 +279,13 @@ class MainActivity : Activity() {
             { Prefs.setNumberRowAlways(this, it) }))
         add(switchSetting("Show mode name on spacebar", Prefs.spacebarLabel(this),
             { Prefs.setSpacebarLabel(this, it) }))
+        add(label("Suggestion-bar controls:"))
+        add(switchSetting("Show ১২৩ (number row) button", Prefs.showNumberToggle(this),
+            { Prefs.setShowNumberToggle(this, it) }))
+        add(switchSetting("Show 📋 clipboard button", Prefs.showClipboardChip(this),
+            { Prefs.setShowClipboardChip(this, it) }))
+        add(switchSetting("Show ⚙ settings button", Prefs.showSettingsButton(this),
+            { Prefs.setShowSettingsButton(this, it) }))
 
         add(label("Background image"))
         val bgRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(pad, 0, pad, 0) }
@@ -324,6 +333,64 @@ class MainActivity : Activity() {
             { "${it}dp per character" }, { Prefs.setGlideSensitivityDp(this, it) }))
     }
 
+    /** Custom keyboard layouts: import + selection. */
+    private fun buildLayoutsSection() {
+        add(header("Keyboard layouts"))
+        add(note("The প্ (fixed) mode uses the selected layout. Import any OpenBangla layout JSON file — " +
+                "it must contain Key_X_Normal entries. Long-press popups, AltGr layer and labels are derived from it."))
+
+        val layouts = Prefs.installedLayouts(this)
+        val selected = Prefs.selectedLayout(this)
+        val group = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            setPadding(pad, 0, pad, 0)
+            addView(RadioButton(this@MainActivity).apply {
+                this.text = "প্রভাত (bundled)"
+                id = 4100
+                isChecked = selected == "probhat"
+            })
+            layouts.forEachIndexed { i, name ->
+                addView(RadioButton(this@MainActivity).apply {
+                    this.text = name.removeSuffix(".json")
+                    id = 4101 + i
+                    isChecked = selected == name
+                })
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                val name = if (checkedId == 4100) "probhat"
+                else layouts.getOrNull(checkedId - 4101) ?: return@setOnCheckedChangeListener
+                Prefs.setSelectedLayout(this@MainActivity, name)
+            }
+        }
+        add(group)
+
+        val importButton = Button(this).apply {
+            text = "Import layout file…"
+            setOnClickListener {
+                val intent = Intent(Intent.ACTION_GET_CONTENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/json")
+                startActivityForResult(intent, REQ_LAYOUT)
+            }
+        }
+        add(importButton)
+
+        val deleteButton = Button(this).apply {
+            text = "Delete selected custom layout"
+            setOnClickListener {
+                val name = Prefs.selectedLayout(this@MainActivity)
+                if (name == "probhat") {
+                    toast("The bundled Probhat layout cannot be deleted")
+                } else {
+                    File(Prefs.layoutsDir(this@MainActivity), name).delete()
+                    Prefs.setSelectedLayout(this@MainActivity, "probhat")
+                    recreate()
+                }
+            }
+        }
+        add(deleteButton)
+    }
+
     private fun buildBackupSection() {
         add(header("Backup"))
         val export = Button(this).apply {
@@ -348,6 +415,41 @@ class MainActivity : Activity() {
         add(export); add(import)
         add(note("Settings are stored only on this device. Export produces a shareable JSON file; " +
                 "importing applies everything in it. Nothing is ever uploaded."))
+
+        val advanced = Button(this).apply {
+            text = "Advanced: edit raw settings JSON"
+            setOnClickListener { showRawEditor() }
+        }
+        add(advanced)
+        add(note("Full control: every Osmium preference is a JSON key here. Edit values, save, and " +
+                "reopen the keyboard. Invalid values are ignored."))
+    }
+
+    /** Power-user raw preference editor. */
+    private fun showRawEditor() {
+        val edit = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            gravity = Gravity.TOP or Gravity.START
+            setText(Prefs.exportJson(this@MainActivity))
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            minLines = 6
+            setPadding(24, 12, 24, 12)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Raw settings JSON")
+            .setView(android.widget.ScrollView(this).apply { addView(edit) })
+            .setPositiveButton("Save") { _, _ ->
+                try {
+                    val count = Prefs.importJson(this, edit.text.toString())
+                    toast("Applied $count settings — reopen the keyboard")
+                    recreate()
+                } catch (t: Throwable) {
+                    toast("Not valid JSON: ${t.message}")
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun buildDiagnosticsSection() {
@@ -472,6 +574,35 @@ class MainActivity : Activity() {
                 recreate()
             } catch (t: Throwable) {
                 toast("Import failed: ${t.message}")
+            }
+            REQ_LAYOUT -> try {
+                val json = contentResolver.openInputStream(uri)!!
+                    .bufferedReader().readText()
+                val root = org.json.JSONObject(json)
+                val looksLikeLayout = root.optJSONObject("layout")?.let { l ->
+                    l.keys().asSequence().any { it.endsWith("_Normal") }
+                } == true || root.has("letters")
+                if (!looksLikeLayout) {
+                    toast("That file does not look like an OpenBangla layout")
+                } else {
+                    val dir = Prefs.layoutsDir(this)
+                    val base = (uri.lastPathSegment ?: "layout")
+                        .substringAfterLast('/')
+                        .substringAfterLast(':')
+                        .substringBeforeLast(".json")
+                        .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+                        .take(40)
+                        .ifEmpty { "layout" }
+                    var name = "$base.json"
+                    var n = 1
+                    while (File(dir, name).exists()) { n++; name = "$base-$n.json" }
+                    File(dir, name).writeText(json)
+                    Prefs.setSelectedLayout(this, name)
+                    toast("Layout imported — reopen the keyboard")
+                    recreate()
+                }
+            } catch (t: Throwable) {
+                toast("Layout import failed: ${t.message}")
             }
         }
     }

@@ -19,10 +19,14 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     var onLanguageToggle: (() -> Unit)? = null
     var onNumberRowToggle: (() -> Unit)? = null
     var onSettingsTap: (() -> Unit)? = null
+    var onClipboardToggle: (() -> Unit)? = null
 
     private val chips = mutableListOf<TextView>()
     private lateinit var langButton: TextView
     private val incognitoIndicator: TextView
+    private val numberButton: TextView
+    private val clipboardChip: TextView
+    private val settingsButton: TextView
 
     init {
         orientation = HORIZONTAL
@@ -57,15 +61,28 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             addView(chip, barParams(1.6f))
         }
 
-        val numberButton = controlButton("১২৩", 1f).also {
+        numberButton = controlButton("১২৩", 1f).also {
             it.setOnClickListener { onNumberRowToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        val settingsButton = controlButton("⚙", 1f).also {
+        clipboardChip = controlButton("📋", 1f).also {
+            it.setOnClickListener { onClipboardToggle?.invoke() }
+            addView(it, barParams(1f))
+        }
+
+        settingsButton = controlButton("⚙", 1f).also {
             it.setOnClickListener { onSettingsTap?.invoke() }
             addView(it, barParams(1f))
         }
+        refreshControls()
+    }
+
+    /** Applies the toolbar-visibility preferences. */
+    fun refreshControls() {
+        numberButton.visibility = if (Prefs.showNumberToggle(context)) VISIBLE else GONE
+        clipboardChip.visibility = if (Prefs.showClipboardChip(context)) VISIBLE else GONE
+        settingsButton.visibility = if (Prefs.showSettingsButton(context)) VISIBLE else GONE
     }
 
     /** Re-styles for the current theme. */
@@ -98,11 +115,12 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             isClickable = true
         }
 
-    fun setModeLabel(mode: KeyboardMode) {
+    fun setModeLabel(mode: KeyboardMode, layoutName: String? = null) {
         langButton.text = when (mode) {
             KeyboardMode.ENGLISH -> "EN"
             KeyboardMode.AVRO -> "অভ্র"
-            KeyboardMode.PROBHAT -> "প্রভাত"
+            KeyboardMode.PROBHAT -> layoutName?.takeIf { it.isNotBlank() && it != "probhat" }
+                ?.removeSuffix(".json") ?: "প্রভাত"
         }
     }
 

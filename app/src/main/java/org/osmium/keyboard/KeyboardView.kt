@@ -128,6 +128,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         set(value) {
             field = value
             loadLabels()
+            relabelAll()
         }
 
     private fun loadLabels() {

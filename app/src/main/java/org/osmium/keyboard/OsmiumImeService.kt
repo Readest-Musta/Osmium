@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.LinearLayout
 import uniffi.osmium.OsSuggestion
+import java.io.File
 
 /**
  * Osmium IME — the heart of the keyboard.
@@ -30,6 +31,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var keyboardView: KeyboardView? = null
     private var suggestionBar: SuggestionBar? = null
     private var emojiPanel: EmojiPanel? = null
+    private var clipboardPanel: ClipboardPanel? = null
 
     private var mode = KeyboardMode.AVRO
     private var latest = RitiEngine.EMPTY
@@ -38,6 +40,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** State for double-space → দাঁড়ি (।). */
     private var lastSpaceAt = 0L
     private var lastWasSpace = false
+    /** Last clipboard text seen, for change detection. */
+    private var lastClip = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -82,15 +86,19 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
 
         suggestionBar = SuggestionBar(this).apply {
-            setModeLabel(mode)
+            setModeLabel(mode, selectedLayoutName())
             onSuggestionTap = { index -> onSuggestion(index) }
             onLanguageToggle = { cycleMode() }
             onNumberRowToggle = { keyboardView?.toggleNumberRow() }
             onSettingsTap = { launchSetup() }
+            onClipboardToggle = { toggleClipboardPanel() }
         }
 
         keyboardView = KeyboardView(this).apply {
             this.mode = this@OsmiumImeService.mode
+            if (this@OsmiumImeService.mode == KeyboardMode.PROBHAT) {
+                userLayoutPath = selectedLayoutPath()
+            }
             listener = this@OsmiumImeService
         }
 
@@ -98,6 +106,14 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             visibility = View.GONE
             onEmojiPicked = { emoji ->
                 currentInputConnection?.commitText(emoji, 1)
+                haptic()
+            }
+        }
+
+        clipboardPanel = ClipboardPanel(this).apply {
+            visibility = View.GONE
+            onPaste = { text ->
+                currentInputConnection?.commitText(text, 1)
                 haptic()
             }
         }
@@ -110,6 +126,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         )
         container.addView(
             emojiPanel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
+        )
+        container.addView(
+            clipboardPanel,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
         )
         container.addView(
@@ -135,8 +155,40 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
         emojiPanel?.visibility = View.GONE
+        clipboardPanel?.visibility = View.GONE
         lastWasSpace = false
         autoCapitalizeIfNeeded()
+        captureClipboard()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) captureClipboard()
+    }
+
+    /** Records newly copied text into the local clipboard history. */
+    private fun captureClipboard() {
+        try {
+            val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return
+            val text = cm.primaryClip?.getItemAt(0)?.text?.toString() ?: return
+            if (text.isNotBlank() && text != lastClip && text.length <= 4000) {
+                lastClip = text
+                Prefs.addClipboardItem(this, text)
+                clipboardPanel?.refresh()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun toggleClipboardPanel() = guarded {
+        haptic()
+        val clip = clipboardPanel ?: return@guarded
+        val clipShowing = clip.visibility == View.VISIBLE
+        clip.visibility = if (clipShowing) View.GONE else View.VISIBLE
+        if (!clipShowing) {
+            clip.refresh()
+            emojiPanel?.visibility = View.GONE
+        }
     }
 
     private fun isPasswordField(info: EditorInfo): Boolean {
@@ -263,7 +315,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onEmojiToggle() = guarded {
         haptic()
         val panel = emojiPanel ?: return@guarded
-        panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        val showing = panel.visibility == View.VISIBLE
+        panel.visibility = if (showing) View.GONE else View.VISIBLE
+        if (!showing) clipboardPanel?.visibility = View.GONE
     }
 
     override fun onNumberRowToggle() = guarded {
@@ -372,8 +426,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             engine.finishSession()
         }
 
-        keyboardView?.mode = mode
-        suggestionBar?.setModeLabel(mode)
+        keyboardView?.apply {
+            mode = this@OsmiumImeService.mode
+            userLayoutPath = if (mode == KeyboardMode.PROBHAT) selectedLayoutPath() else null
+        }
+        suggestionBar?.setModeLabel(mode, selectedLayoutName())
         suggestionBar?.clear()
     }
 
@@ -382,9 +439,24 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         KeyboardMode.AVRO -> "avro_phonetic"
         KeyboardMode.PROBHAT -> {
             RitiEngine.ensureData(this)
-            java.io.File(filesDir, "riti/Probhat.json").absolutePath
+            selectedLayoutPath()
         }
         KeyboardMode.ENGLISH -> null
+    }
+
+    /** Path to the selected fixed layout file (bundled Probhat or imported). */
+    private fun selectedLayoutPath(): String {
+        RitiEngine.ensureData(this)
+        val name = Prefs.selectedLayout(this)
+        val custom = File(Prefs.layoutsDir(this), name)
+        return if (name != "probhat" && custom.exists()) custom.absolutePath
+        else File(filesDir, "riti/Probhat.json").absolutePath
+    }
+
+    /** Selected layout display name, or null for the bundled Probhat. */
+    private fun selectedLayoutName(): String? {
+        val name = Prefs.selectedLayout(this)
+        return if (name == "probhat") null else name.removeSuffix(".json")
     }
 
     private fun launchSetup() {

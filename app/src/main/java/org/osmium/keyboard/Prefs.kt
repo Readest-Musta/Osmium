@@ -2,6 +2,7 @@ package org.osmium.keyboard
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.io.File
 
 /**
  * User preferences for Osmium. Stored locally only — no sync, no analytics.
@@ -164,6 +165,110 @@ object Prefs {
     fun customColorKeys(): List<String> = COLOR_KEYS
 
     // ------------------------------------------------------------------
+    // Clipboard history (local only)
+    // ------------------------------------------------------------------
+
+    /** Clipboard history: list of (text, pinned), newest first. */
+    fun clipboardItems(context: Context): List<ClipboardItem> {
+        val raw = sp(context).getString(KEY_CLIPBOARD, "[]") ?: "[]"
+        return try {
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                ClipboardItem(text = o.optString("t"), pinned = o.optBoolean("p", false))
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    data class ClipboardItem(val text: String, val pinned: Boolean)
+
+    /** Adds a copied text at the front (deduped). Trims history. */
+    fun addClipboardItem(context: Context, text: String) {
+        val existing = clipboardItems(context)
+        val filtered = existing.filter { it.text != text }
+        val pinned = filtered.filter { it.pinned }.take(40)
+        val unpinned = listOf(ClipboardItem(text, false)) +
+                filtered.filter { !it.pinned }.take(CLIPBOARD_MAX - 1)
+        saveClipboard(context, pinned + unpinned)
+    }
+
+    fun toggleClipboardPin(context: Context, index: Int) {
+        val items = clipboardItems(context).toMutableList()
+        items.getOrNull(index)?.let {
+            items[index] = it.copy(pinned = !it.pinned)
+            saveClipboard(context, items)
+        }
+    }
+
+    fun removeClipboardItem(context: Context, index: Int) {
+        val items = clipboardItems(context).toMutableList()
+        if (index in items.indices) {
+            items.removeAt(index)
+            saveClipboard(context, items)
+        }
+    }
+
+    fun clearClipboardHistory(context: Context) {
+        saveClipboard(context, clipboardItems(context).filter { it.pinned })
+    }
+
+    private fun saveClipboard(context: Context, items: List<ClipboardItem>) {
+        val arr = org.json.JSONArray()
+        for (item in items.take(CLIPBOARD_MAX + 40)) {
+            arr.put(org.json.JSONObject().put("t", item.text).put("p", item.pinned))
+        }
+        sp(context).edit().putString(KEY_CLIPBOARD, arr.toString()).apply()
+    }
+
+    private const val CLIPBOARD_MAX = 30
+
+    // ------------------------------------------------------------------
+    // Suggestion-bar toolbar visibility
+    // ------------------------------------------------------------------
+
+    fun showClipboardChip(context: Context): Boolean =
+        sp(context).getBoolean(KEY_TOOL_CLIP, true)
+    fun setShowClipboardChip(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_TOOL_CLIP, value).apply()
+    }
+
+    fun showNumberToggle(context: Context): Boolean =
+        sp(context).getBoolean(KEY_TOOL_NUM, true)
+    fun setShowNumberToggle(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_TOOL_NUM, value).apply()
+    }
+
+    fun showSettingsButton(context: Context): Boolean =
+        sp(context).getBoolean(KEY_TOOL_SET, true)
+    fun setShowSettingsButton(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_TOOL_SET, value).apply()
+    }
+
+    // ------------------------------------------------------------------
+    // User-installed keyboard layouts
+    // ------------------------------------------------------------------
+
+    /** Selected fixed-layout: "probhat" (bundled) or a file name in layouts/. */
+    fun selectedLayout(context: Context): String =
+        sp(context).getString(KEY_LAYOUT, "probhat")!!
+    fun setSelectedLayout(context: Context, name: String) {
+        sp(context).edit().putString(KEY_LAYOUT, name).apply()
+    }
+
+    /** Directory where imported layout JSON files live. */
+    fun layoutsDir(context: Context): File {
+        val dir = File(context.filesDir, "layouts")
+        dir.mkdirs()
+        return dir
+    }
+
+    fun installedLayouts(context: Context): List<String> =
+        layoutsDir(context).listFiles { f -> f.name.endsWith(".json") }
+            ?.map { it.name }?.sorted() ?: emptyList()
+
+    // ------------------------------------------------------------------
     // Recently used emoji (newest first)
     // ------------------------------------------------------------------
 
@@ -244,4 +349,9 @@ object Prefs {
     private const val KEY_C_ACCENT = "custom_color_accent"
     private const val KEY_C_BAR = "custom_color_bar"
     private const val KEY_C_PANEL = "custom_color_panel"
+    private const val KEY_CLIPBOARD = "clipboard_items"
+    private const val KEY_TOOL_CLIP = "toolbar_clipboard"
+    private const val KEY_TOOL_NUM = "toolbar_number"
+    private const val KEY_TOOL_SET = "toolbar_settings"
+    private const val KEY_LAYOUT = "selected_layout"
 }
