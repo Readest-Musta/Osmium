@@ -35,6 +35,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var latest = RitiEngine.EMPTY
     private var incognito = false
     private var appliedThemeKey: String? = null
+    /** State for double-space → দাঁড়ি (।). */
+    private var lastSpaceAt = 0L
+    private var lastWasSpace = false
 
     override fun onCreate() {
         super.onCreate()
@@ -132,6 +135,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
         emojiPanel?.visibility = View.GONE
+        lastWasSpace = false
+        autoCapitalizeIfNeeded()
     }
 
     private fun isPasswordField(info: EditorInfo): Boolean {
@@ -162,7 +167,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val char = if (shifted) code.uppercase() else code
         val modifier = if (altgr) MODIFIER_ALT_GR else 0
         when (mode) {
-            KeyboardMode.ENGLISH -> currentInputConnection?.commitText(char, 1)
+            KeyboardMode.ENGLISH -> {
+                currentInputConnection?.commitText(char, 1)
+                lastWasSpace = false
+                autoCapitalizeIfNeeded()
+            }
             KeyboardMode.AVRO -> sendToRiti(char, modifier)
             KeyboardMode.PROBHAT -> sendToRiti(char, modifier)
         }
@@ -177,8 +186,50 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
+            lastWasSpace = false
+            lastSpaceAt = 0L
+            ic.commitText(" ", 1)
+            return@guarded
         }
-        ic.commitText(" ", 1)
+        // Double-space → দাঁড়ি (।): second space soon after the first one
+        // replaces that space with the Bangla full stop.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (Prefs.doubleSpaceDari(this) && mode != KeyboardMode.PROBHAT &&
+            lastWasSpace && now - lastSpaceAt < 400
+        ) {
+            ic.deleteSurroundingText(1, 0)
+            ic.commitText("।", 1)
+            lastWasSpace = false
+            lastSpaceAt = 0L
+        } else {
+            ic.commitText(" ", 1)
+            lastWasSpace = true
+            lastSpaceAt = now
+        }
+        autoCapitalizeIfNeeded()
+    }
+
+    override fun onCursorGlide(delta: Int) = guarded {
+        val ic = currentInputConnection ?: return@guarded
+        val pos = cursorPosition(ic) ?: return@guarded
+        val target = (pos + delta).coerceAtLeast(0)
+        ic.setSelection(target, target)
+    }
+
+    /** Current cursor position via extracted text; null when unavailable. */
+    private fun cursorPosition(ic: InputConnection): Int? {
+        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+            ?: return null
+        return et.startOffset + et.selectionStart
+    }
+
+    /** Shift on when the cursor sits at a sentence start (English mode only). */
+    private fun autoCapitalizeIfNeeded() {
+        if (!Prefs.autoCapitalize(this) || mode != KeyboardMode.ENGLISH) return
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(16, 0)?.toString().orEmpty().trimEnd()
+        val atSentenceStart = before.isEmpty() || before.last() in ".!?।\n"
+        keyboardView?.setShift(atSentenceStart)
     }
 
     override fun onBackspace() = guarded {
@@ -346,11 +397,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun haptic() {
         if (!Prefs.hapticsEnabled(this)) return
         val vibrator = getSystemService(Vibrator::class.java) ?: return
+        val ms = Prefs.hapticMs(this).coerceIn(1, 60)
+        val amp = Prefs.hapticStrength(this).coerceIn(1, 255)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(8, 120))
+            vibrator.vibrate(VibrationEffect.createOneShot(ms, amp))
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(8)
+            vibrator.vibrate(ms)
         }
     }
 

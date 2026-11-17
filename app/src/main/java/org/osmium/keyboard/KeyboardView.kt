@@ -2,9 +2,14 @@ package org.osmium.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
+import java.io.File
 
 /** Typing modes Osmium supports. */
 enum class KeyboardMode { ENGLISH, AVRO, PROBHAT }
@@ -30,8 +36,11 @@ data class PopupEntry(val label: String, val code: String, val altgr: Boolean)
  * a code is decided by the IME service: English commits it directly, Avro/Probhat
  * feed it to the riti engine.
  *
- * Long-press on keys with alternates opens a G-board-style popup: hold, slide
- * onto a character, release to commit.
+ * Extras:
+ *  - Long-press popups (G-board style): hold, slide onto a character, release.
+ *  - Spacebar glide: drag horizontally on the spacebar to move the text cursor.
+ *  - Appearance driven by user prefs: key height/radius/font scale, colours
+ *    (via [Theme]), optional background image.
  */
 class KeyboardView(context: Context) : FrameLayout(context) {
 
@@ -46,6 +55,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         fun onNumberRowToggle()
         /** Haptic feedback request (e.g. popup opened). */
         fun onFeedback()
+        /** Move the text cursor by `delta` codepoints (spacebar glide). */
+        fun onCursorGlide(delta: Int)
     }
 
     var listener: Listener? = null
@@ -62,71 +73,109 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private var capsLock = false
     private var numberRowVisible = false
     private var pal = Theme.palette(context)
+
+    // Appearance settings (read once — the IME rebuilds the view when they change).
+    private val keyHeightDp = (BASE_KEY_DP * Prefs.keyHeightScale(context) / 100f).toInt()
+    private val charTextSize = BASE_CHAR_TEXT * Prefs.keyFontScale(context) / 100f
+    private val actionTextSize = BASE_ACTION_TEXT * Prefs.keyFontScale(context) / 100f
+    private val radiusDp = Prefs.keyRadiusDp(context)
+    private val showSpacebarLabel = Prefs.spacebarLabel(context)
+    private val longPressMs = Prefs.longPressMs(context).toLong()
+    private val repeatMs = Prefs.backspaceRepeatMs(context).toLong()
+
     private val handler = Handler(Looper.getMainLooper())
 
     private val rows: LinearLayout
     private val keys = mutableListOf<OsmiumKey>()
     private var numberRow: LinearLayout? = null
 
-    /** Probhat labels: physical char -> (normal, shifted, altGr). */
-    private val probhatLabels: Map<String, ProbhatKey> by lazy {
-        val raw = context.assets.open("layouts/probhat-labels.json").bufferedReader().readText()
-        val root = JSONObject(raw)
-        val map = mutableMapOf<String, ProbhatKey>()
-        val letters = root.getJSONObject("letters")
-        for (ch in letters.keys()) {
-            val e = letters.getJSONObject(ch)
-            map[ch] = ProbhatKey(
-                n = e.optString("n", ch),
-                s = e.optString("s", ch.uppercase()),
-                a = if (e.has("a")) e.getString("a") else null
-            )
-        }
-        val digits = root.getJSONObject("digits")
-        for (ch in digits.keys()) {
-            val e = digits.getJSONObject(ch)
-            map[ch] = ProbhatKey(
-                n = e.optString("n", ch),
-                s = ch,
-                a = if (e.has("a")) e.getString("a") else null
-            )
-        }
-        val punct = root.getJSONObject("punct")
-        for (ch in punct.keys()) {
-            val e = punct.getJSONObject(ch)
-            map[ch] = ProbhatKey(
-                n = e.optString("n", ch),
-                s = ch,
-                a = if (e.has("a")) e.getString("a") else null
-            )
-        }
-        map
-    }
-
-    private data class ProbhatKey(val n: String, val s: String, val a: String?)
+    /** Labels: physical char -> (normal, shifted, altGr). Loaded per mode. */
+    private var labels: Map<String, LayoutLabels.Entry> = emptyMap()
 
     init {
+        loadLabels()
         rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(rows, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
+        numberRowVisible = Prefs.numberRowAlways(context)
         numberRow = buildRow(listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"), digitRow = true)
             .also {
-                it.visibility = GONE
-                rows.addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                it.visibility = if (numberRowVisible) VISIBLE else GONE
+                rows.addView(it, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             }
 
         rows.addView(buildRow(listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")))
         rows.addView(buildRow(listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")))
         rows.addView(buildActionMiddleRow())
         rows.addView(buildBottomRow())
+        applyBackground()
         relabelAll()
     }
 
     private fun dp(v: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
     ).toInt()
+
+    // ------------------------------------------------------------------
+    // Label loading: bundled Probhat, or a user-installed layout
+    // ------------------------------------------------------------------
+
+    /** Path to a user layout JSON file, or null for the bundled Probhat labels. */
+    var userLayoutPath: String? = null
+        set(value) {
+            field = value
+            loadLabels()
+        }
+
+    private fun loadLabels() {
+        labels = try {
+            val raw = userLayoutPath?.let { File(it).readText() }
+                ?: context.assets.open("layouts/probhat-labels.json").bufferedReader().readText()
+            LayoutLabels.fromLayoutJson(JSONObject(raw))
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Background image (user-chosen, optional)
+    // ------------------------------------------------------------------
+
+    private fun applyBackground() {
+        val path = Prefs.bgImagePath(context)
+        val file = if (path.isNotEmpty()) File(path) else null
+        if (file == null || !file.exists()) {
+            setBackgroundColor(pal.keyboardBg)
+            return
+        }
+        try {
+            // Decode at roughly screen size to keep memory sane.
+            val targetW = resources.displayMetrics.widthPixels / 2
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+            var sample = 1
+            while (opts.outWidth / sample > targetW * 2) sample *= 2
+            val bmpOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = BitmapFactory.decodeFile(file.absolutePath, bmpOpts) ?: run {
+                setBackgroundColor(pal.keyboardBg); return
+            }
+            val dim = Prefs.bgImageDim(context).coerceIn(0, 90)
+            val dimAlpha = (dim * 255 / 100)
+            val dimColor = Color.argb(dimAlpha, 0, 0, 0)
+            val dimmed = if (Theme.isDark(context))
+                Color.argb(dimAlpha, 10, 12, 16)
+            else Color.argb(dimAlpha, 240, 241, 245)
+            background = LayerDrawable(arrayOf(
+                BitmapDrawable(resources, bmp),
+                ColorDrawable(if (pal.keyboardBg == Theme.dark.keyboardBg) dimColor else dimmed),
+            ))
+        } catch (_: Throwable) {
+            setBackgroundColor(pal.keyboardBg)
+        }
+    }
 
     private fun buildRow(codes: List<String>, digitRow: Boolean = false): LinearLayout {
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
@@ -136,7 +185,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             attachKeyTouch(key, code, digitRow)
             row.addView(
                 key,
-                LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(2), dp(4), dp(2), dp(2)) }
+                LinearLayout.LayoutParams(0, dp(keyHeightDp), 1f).apply {
+                    setMargins(dp(2), dp(4), dp(2), dp(2))
+                }
             )
         }
         return row
@@ -151,19 +202,19 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         return when (mode) {
             KeyboardMode.PROBHAT -> {
                 val entries = mutableListOf<PopupEntry>()
-                val p = probhatLabels[code]
+                val p = labels[code]
                 if (digitRow) {
                     // Fraction-sign AltGr layer on Bengali digit keys.
                     p?.a?.let { entries += PopupEntry(it, code, altgr = true) }
                 } else {
                     // Top-row letters: long-press types the digit (Bengali here).
-                    if (idx >= 0) probhatLabels[TOP_DIGITS[idx]]?.let { d ->
+                    if (idx >= 0) labels[TOP_DIGITS[idx]]?.let { d ->
                         entries += PopupEntry(d.n, TOP_DIGITS[idx], altgr = false)
                     }
                     p?.a?.let { entries += PopupEntry(it, code, altgr = true) }
                     if (code == "." || code == ",") {
                         PROBHAT_PUNCT_EXTRAS[code]?.forEach { ch ->
-                            probhatLabels[ch]?.let { p2 ->
+                            labels[ch]?.let { p2 ->
                                 entries += PopupEntry(p2.n, ch, altgr = false)
                             }
                         }
@@ -203,7 +254,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                             listener?.onFeedback()
                         }
                         pendingLongPress = r
-                        handler.postDelayed(r, LONG_PRESS_MS)
+                        handler.postDelayed(r, longPressMs)
                     }
                     true
                 }
@@ -248,6 +299,84 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             shift = false
             relabelAll()
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Spacebar glide cursor
+    // ------------------------------------------------------------------
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun attachSpaceGlide(space: OsmiumKey) {
+        var downX = 0f
+        var glideActive = false
+        var accumulated = 0f
+        var hapticSteps = 0
+
+        space.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = ev.rawX
+                    accumulated = 0f
+                    glideActive = false
+                    hapticSteps = 0
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (Prefs.glideCursor(context) && !glideActive) {
+                        glideActive = Math.abs(ev.rawX - downX) > dp(GLIDE_START_DP)
+                        if (glideActive) {
+                            space.isPressed = false
+                            listener?.onFeedback()
+                        }
+                    }
+                    if (glideActive) {
+                        accumulated += ev.rawX - downX
+                        downX = ev.rawX
+                        val step = dp(Prefs.glideSensitivityDp(context)).coerceAtLeast(dp(8)).toFloat()
+                        val steps = (accumulated / step).toInt()
+                        if (steps != 0) {
+                            accumulated -= steps * step
+                            listener?.onCursorGlide(steps)
+                            hapticSteps += Math.abs(steps)
+                            if (hapticSteps >= GLIDE_HAPTIC_EVERY) {
+                                hapticSteps = 0
+                                listener?.onFeedback()
+                            }
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!glideActive) listener?.onSpace()
+                    glideActive = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    glideActive = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private companion object {
+        /** Horizontal drag (dp) before a space tap becomes a cursor glide. */
+        const val GLIDE_START_DP = 18
+        const val GLIDE_HAPTIC_EVERY = 3
+
+        const val BASE_KEY_DP = 46
+        const val BASE_CHAR_TEXT = 18f
+        const val BASE_ACTION_TEXT = 16f
+
+        /** Extra characters offered on the punctuation keys (English/Avro). */
+        val PUNCT_POPUP = listOf("!", "?", ";", ":", "'", "\"")
+        val COMMA_POPUP = listOf("'", "\"", ":", ";", "!")
+        /** Probhat: extra normal-layer chars reachable from '.' / ',' popups. */
+        val PROBHAT_PUNCT_EXTRAS = mapOf(
+            "." to listOf("!", "?", ":", ";"),
+            "," to listOf("'", "\"", ":", ";")
+        )
     }
 
     // ------------------------------------------------------------------
@@ -386,11 +515,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         val r: Runnable = object : Runnable {
                             override fun run() {
                                 listener?.onBackspace()
-                                handler.postDelayed(this, 60)
+                                handler.postDelayed(this, repeatMs)
                             }
                         }
                         repeat = r
-                        handler.postDelayed(r, 350)
+                        handler.postDelayed(r, longPressMs)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         repeat?.let { handler.removeCallbacks(it) }
@@ -430,8 +559,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
         val space = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "space"
-            setOnClickListener { listener?.onSpace() }
         }
+        attachSpaceGlide(space)
         keys.add(space)
         row.addView(space, rowParams(4f))
 
@@ -451,7 +580,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         return row
     }
 
-    private fun rowParams(weight: Float) = LinearLayout.LayoutParams(0, dp(46), weight).apply {
+    private fun rowParams(weight: Float) = LinearLayout.LayoutParams(0, dp(keyHeightDp), weight).apply {
         setMargins(dp(2), dp(4), dp(2), dp(2))
     }
 
@@ -460,6 +589,12 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         numberRowVisible = !numberRowVisible
         numberRow?.visibility = if (numberRowVisible) VISIBLE else GONE
         return numberRowVisible
+    }
+
+    /** Forces the shift state (e.g. auto-capitalize at a sentence start). */
+    fun setShift(value: Boolean) {
+        shift = value
+        if (value) relabelAll()
     }
 
     fun relabelAll() {
@@ -476,11 +611,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     KeyboardMode.AVRO -> "অ"
                     KeyboardMode.PROBHAT -> "প্"
                 }
-                "space" -> key.text = when (mode) {
+                "space" -> key.text = if (showSpacebarLabel) when (mode) {
                     KeyboardMode.ENGLISH -> "English"
                     KeyboardMode.AVRO -> "অভ্র"
                     KeyboardMode.PROBHAT -> "প্রভাত"
-                }
+                } else ""
                 "enter", "backspace", "emoji" -> Unit // static labels
                 else -> key.text = labelFor(tag, shifted)
             }
@@ -489,7 +624,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     private fun labelFor(code: String, shifted: Boolean): String = when (mode) {
         KeyboardMode.PROBHAT -> {
-            val p = probhatLabels[code]
+            val p = labels[code]
             if (shifted) p?.s ?: code else p?.n ?: code
         }
         else -> if (shifted) code.uppercase() else code
@@ -498,26 +633,13 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     /** Re-styles every view for the current theme; call after theme changes. */
     fun applyTheme() {
         pal = Theme.palette(context)
-        setBackgroundColor(pal.keyboardBg)
+        applyBackground()
         for (key in keys) key.refreshStyle()
         relabelAll()
     }
 
     private val TOP_ROW = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
     private val TOP_DIGITS = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
-
-    private companion object {
-        const val LONG_PRESS_MS = 350L
-
-        /** Extra characters offered on the punctuation keys (English/Avro). */
-        val PUNCT_POPUP = listOf("!", "?", ";", ":", "'", "\"")
-        val COMMA_POPUP = listOf("'", "\"", ":", ";", "!")
-        /** Probhat: extra normal-layer chars reachable from '.' / ',' popups. */
-        val PROBHAT_PUNCT_EXTRAS = mapOf(
-            "." to listOf("!", "?", ":", ";"),
-            "," to listOf("'", "\"", ":", ";")
-        )
-    }
 
     /** A single key. */
     @SuppressLint("ViewConstructor")
@@ -526,8 +648,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         init {
             gravity = Gravity.CENTER
             textSize = when (kind) {
-                OsmiumKeyKind.CHAR -> 18f
-                else -> 16f
+                OsmiumKeyKind.CHAR -> charTextSize
+                else -> actionTextSize
             }
             typeface = if (kind == OsmiumKeyKind.CHAR) Typeface.DEFAULT else Typeface.DEFAULT_BOLD
             isClickable = true
@@ -545,7 +667,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         }
 
         private fun round(color: Int): GradientDrawable = GradientDrawable().apply {
-            cornerRadius = dp(9).toFloat()
+            cornerRadius = dp(radiusDp).toFloat()
             setColor(color)
         }
 
@@ -560,5 +682,61 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 }
 
-/** Visual role of a key. */
-enum class OsmiumKeyKind { CHAR, ACTION, ACCENT }
+/**
+ * Shared label parsing for keyboard layouts: works for the bundled
+ * probhat-labels.json AND for full OpenBangla layout files (Probhat.json, or
+ * any user-installed one), which use Key_X_Normal / Key_X_Shift / Key_X_AltGr.
+ */
+object LayoutLabels {
+
+    /** (normal, shifted, altGr) labels for one physical key. */
+    data class Entry(val n: String, val s: String, val a: String?)
+
+    fun fromLayoutJson(root: JSONObject): Map<String, Entry> {
+        val map = mutableMapOf<String, Entry>()
+
+        fun addLabel(code: String, n: String?, s: String?, a: String?) {
+            val normal = n?.takeIf { it.isNotEmpty() } ?: return
+            map[code] = Entry(
+                n = normal,
+                s = s?.takeIf { it.isNotEmpty() } ?: normal,
+                a = a?.takeIf { it.isNotEmpty() }
+            )
+        }
+
+        if (root.has("letters")) {
+            // Bundled label format: { letters: { q: {n,s,a} }, digits: {...}, punct: {...} }
+            for (section in listOf("letters", "digits", "punct")) {
+                if (!root.has(section)) continue
+                val obj = root.getJSONObject(section)
+                for (ch in obj.keys()) {
+                    val e = obj.getJSONObject(ch)
+                    map[ch] = Entry(
+                        n = e.optString("n", ch),
+                        s = e.optString("s", if (section == "letters") ch.uppercase() else ch),
+                        a = if (e.has("a")) e.optString("a", "").takeIf { it.isNotEmpty() } else null
+                    )
+                }
+            }
+            return map
+        }
+
+        // OpenBangla layout format: { Key_q_Normal: "দ", Key_q_AltGr: ... , ... }
+        val KEYS = ("qwertyuiopasdfghjklzxcvbnm0123456789" +
+                ",.;:'\"?!-/\\")
+        val NAMES = mapOf(
+            ',' to "Comma", '.' to "Period", ';' to "Semicolon", ':' to "Colon",
+            '\'' to "Apostrophe", '"' to "Quote", '!' to "Exclaim", '?' to "Question",
+            '-' to "Minus", '/' to "Slash", '\\' to "Backslash"
+        )
+        for (c in KEYS) {
+            val name = if (c.isLetterOrDigit()) c.toString() else NAMES[c] ?: continue
+            val normal = root.optString("Key_${name}_Normal", "")
+            if (normal.isEmpty()) continue
+            val shifted = root.optString("Key_${name.uppercase()}_Normal", "")
+            val altGr = root.optString("Key_${name}_AltGr", "")
+            addLabel(c.toString(), normal, shifted.ifEmpty { normal }, altGr)
+        }
+        return map
+    }
+}
