@@ -395,12 +395,17 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
 
         val before = cursorPosition(ic)
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode, meta))
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode, meta))
+        ic.sendKeyEvent(movementKeyEvent(KeyEvent.ACTION_DOWN, keyCode, meta))
+        ic.sendKeyEvent(movementKeyEvent(KeyEvent.ACTION_UP, keyCode, meta))
         val after = cursorPosition(ic)
         if (before != null && after == before) {
             fallbackSelection(ic, action, before, shiftActive)
         }
+    }
+
+    private fun movementKeyEvent(action: Int, keyCode: Int, meta: Int): KeyEvent {
+        val now = android.os.SystemClock.uptimeMillis()
+        return KeyEvent(now, now, action, keyCode, meta)
     }
 
     /** setSelection fallback computed from extracted text for fields that ignore key events. */
