@@ -399,7 +399,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         ic.sendKeyEvent(movementKeyEvent(KeyEvent.ACTION_UP, keyCode, meta))
         val after = cursorPosition(ic)
         if (before != null && after == before) {
-            fallbackSelection(ic, action, before, shiftActive)
+            // Mirror the key-event meta logic: only LEFT/RIGHT extend a selection.
+            val extendSelection = shiftActive &&
+                (action == NavAction.LEFT || action == NavAction.RIGHT)
+            fallbackSelection(ic, action, before, extendSelection)
         }
     }
 
