@@ -161,9 +161,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         captureClipboard()
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) captureClipboard()
+    override fun onWindowShown() {
+        super.onWindowShown()
+        captureClipboard()
     }
 
     /** Records newly copied text into the local clipboard history. */
