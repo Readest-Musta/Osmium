@@ -144,7 +144,8 @@ object Prefs {
     // ------------------------------------------------------------------
 
     private val COLOR_KEYS = listOf(
-        KEY_C_BG, KEY_C_KEY, KEY_C_TEXT, KEY_C_ACCENT, KEY_C_BAR, KEY_C_PANEL
+        "custom_color_keyboard_bg", "custom_color_key", "custom_color_text",
+        "custom_color_accent", "custom_color_bar", "custom_color_panel"
     )
 
     fun customColor(context: Context, key: String): Int? =
