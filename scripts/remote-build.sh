@@ -50,6 +50,7 @@ echo "$LOG_PREFIX ==> Gradle build"
 export JAVA_HOME="$JAVA17_HOME"
 export PATH="$JAVA_HOME/bin:$PATH"
 cd /workspaces/Osmium
+gradle testDebugUnitTest --no-daemon
 gradle assembleDebug --no-daemon
 
 echo "$LOG_PREFIX ==> Result"
