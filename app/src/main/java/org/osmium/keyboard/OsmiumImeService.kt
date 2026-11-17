@@ -93,6 +93,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             onNumberRowToggle = { keyboardView?.toggleNumberRow() }
             onSettingsTap = { launchSetup() }
             onClipboardToggle = { toggleClipboardPanel() }
+            onNavToggle = { onNavigationToggle() }
         }
 
         keyboardView = KeyboardView(this).apply {
@@ -496,6 +497,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onNumberRowToggle() = guarded {
         haptic()
         keyboardView?.toggleNumberRow()
+    }
+
+    override fun onNavigationToggle() = guarded {
+        haptic()
+        val nav = navigationPanel ?: return@guarded
+        val showing = nav.visibility == View.VISIBLE
+        nav.visibility = if (showing) View.GONE else View.VISIBLE
+        if (!showing) {
+            navigationPanel?.refreshTheme()
+            emojiPanel?.visibility = View.GONE
+            clipboardPanel?.visibility = View.GONE
+        }
     }
 
     // ------------------------------------------------------------------

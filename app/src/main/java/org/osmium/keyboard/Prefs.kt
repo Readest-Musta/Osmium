@@ -259,6 +259,12 @@ object Prefs {
         sp(context).edit().putBoolean(KEY_TOOL_SET, value).apply()
     }
 
+    fun showNavButton(context: Context): Boolean =
+        sp(context).getBoolean(KEY_TOOL_NAV, true)
+    fun setShowNavButton(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_TOOL_NAV, value).apply()
+    }
+
     // ------------------------------------------------------------------
     // User-installed keyboard layouts
     // ------------------------------------------------------------------
@@ -368,5 +374,6 @@ object Prefs {
     private const val KEY_TOOL_CLIP = "toolbar_clipboard"
     private const val KEY_TOOL_NUM = "toolbar_number"
     private const val KEY_TOOL_SET = "toolbar_settings"
+    private const val KEY_TOOL_NAV = "toolbar_nav"
     private const val KEY_LAYOUT = "selected_layout"
 }

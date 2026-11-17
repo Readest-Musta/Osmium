@@ -20,10 +20,12 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     var onNumberRowToggle: (() -> Unit)? = null
     var onSettingsTap: (() -> Unit)? = null
     var onClipboardToggle: (() -> Unit)? = null
+    var onNavToggle: (() -> Unit)? = null
 
     private val chips = mutableListOf<TextView>()
     private lateinit var langButton: TextView
     private val incognitoIndicator: TextView
+    private val navButton: TextView
     private val numberButton: TextView
     private val clipboardChip: TextView
     private val settingsButton: TextView
@@ -61,6 +63,11 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             addView(chip, barParams(1.6f))
         }
 
+        navButton = controlButton("⇱", 1f).also {
+            it.setOnClickListener { onNavToggle?.invoke() }
+            addView(it, barParams(1f))
+        }
+
         numberButton = controlButton("১২৩", 1f).also {
             it.setOnClickListener { onNumberRowToggle?.invoke() }
             addView(it, barParams(1f))
@@ -80,6 +87,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
 
     /** Applies the toolbar-visibility preferences. */
     fun refreshControls() {
+        navButton.visibility = if (Prefs.showNavButton(context)) VISIBLE else GONE
         numberButton.visibility = if (Prefs.showNumberToggle(context)) VISIBLE else GONE
         clipboardChip.visibility = if (Prefs.showClipboardChip(context)) VISIBLE else GONE
         settingsButton.visibility = if (Prefs.showSettingsButton(context)) VISIBLE else GONE

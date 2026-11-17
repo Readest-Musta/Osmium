@@ -129,5 +129,6 @@ object Theme {
         append(':').append(Prefs.showNumberToggle(context))
         append(':').append(Prefs.showClipboardChip(context))
         append(':').append(Prefs.showSettingsButton(context))
+        append(':').append(Prefs.showNavButton(context))
     }
 }

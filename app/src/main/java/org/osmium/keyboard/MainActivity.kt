@@ -286,6 +286,8 @@ class MainActivity : Activity() {
             { Prefs.setShowClipboardChip(this, it) }))
         add(switchSetting("Show ⚙ settings button", Prefs.showSettingsButton(this),
             { Prefs.setShowSettingsButton(this, it) }))
+        add(switchSetting("Show ⇱ navigation button", Prefs.showNavButton(this),
+            { Prefs.setShowNavButton(this, it) }))
 
         add(label("Background image"))
         val bgRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(pad, 0, pad, 0) }
@@ -331,6 +333,10 @@ class MainActivity : Activity() {
             { Prefs.setGlideCursor(this, it) }))
         add(sliderSetting("Glide sensitivity", 10, 60, Prefs.glideSensitivityDp(this),
             { "${it}dp per character" }, { Prefs.setGlideSensitivityDp(this, it) }))
+        add(switchSetting("Swipe left on ⌫ deletes a word", Prefs.swipeDeleteEnabled(this),
+            { Prefs.setSwipeDeleteEnabled(this, it) }))
+        add(sliderSetting("Swipe distance for word delete", 30, 100, Prefs.swipeStepDp(this),
+            { "${it}dp" }, { Prefs.setSwipeStepDp(this, it) }))
     }
 
     /** Custom keyboard layouts: import + selection. */

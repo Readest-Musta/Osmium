@@ -57,6 +57,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         fun onModeCycle()
         fun onEmojiToggle()
         fun onNumberRowToggle()
+        /** Toggle navigation panel. */
+        fun onNavigationToggle()
         /** Haptic feedback request (e.g. popup opened). */
         fun onFeedback()
         /** Move the text cursor by `delta` codepoints (spacebar glide). */
@@ -318,6 +320,13 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         var glideActive = false
         var accumulated = 0f
         var hapticSteps = 0
+        var navLongPressFired = false
+        var navLongPressRunnable: Runnable? = null
+
+        fun cancelNavLongPress() {
+            navLongPressRunnable?.let { handler.removeCallbacks(it) }
+            navLongPressRunnable = null
+        }
 
         space.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
@@ -326,9 +335,25 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     accumulated = 0f
                     glideActive = false
                     hapticSteps = 0
+                    navLongPressFired = false
+                    cancelNavLongPress()
+                    val r = Runnable {
+                        navLongPressRunnable = null
+                        navLongPressFired = true
+                        space.isPressed = false
+                        listener?.onNavigationToggle()
+                        listener?.onFeedback()
+                    }
+                    navLongPressRunnable = r
+                    handler.postDelayed(r, longPressMs)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (!navLongPressFired && !glideActive) {
+                        if (Math.abs(ev.rawX - downX) > dp(GLIDE_START_DP)) {
+                            cancelNavLongPress()
+                        }
+                    }
                     if (Prefs.glideCursor(context) && !glideActive) {
                         glideActive = Math.abs(ev.rawX - downX) > dp(GLIDE_START_DP)
                         if (glideActive) {
@@ -354,12 +379,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!glideActive) listener?.onSpace()
+                    cancelNavLongPress()
+                    if (!navLongPressFired && !glideActive) listener?.onSpace()
                     glideActive = false
+                    navLongPressFired = false
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    cancelNavLongPress()
                     glideActive = false
+                    navLongPressFired = false
                     true
                 }
                 else -> false
