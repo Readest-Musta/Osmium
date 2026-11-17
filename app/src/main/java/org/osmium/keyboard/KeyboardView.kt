@@ -682,6 +682,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 }
 
+/** Visual role of a key. */
+enum class OsmiumKeyKind { CHAR, ACTION, ACCENT }
+
 /**
  * Shared label parsing for keyboard layouts: works for the bundled
  * probhat-labels.json AND for full OpenBangla layout files (Probhat.json, or

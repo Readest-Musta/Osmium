@@ -400,10 +400,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val ms = Prefs.hapticMs(this).coerceIn(1, 60)
         val amp = Prefs.hapticStrength(this).coerceIn(1, 255)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(ms, amp))
+            vibrator.vibrate(VibrationEffect.createOneShot(ms.toLong(), amp))
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(ms)
+            vibrator.vibrate(ms.toLong())
         }
     }
 

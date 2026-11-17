@@ -123,8 +123,8 @@ class MainActivity : Activity() {
         }
         val bar = SeekBar(this).apply {
             setPadding(pad, 0, pad, 0)
-            max = max - min
-            progress = current - min
+            setMax(max - min)
+            setProgress(current - min)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) valueLabel.text = "${title}: ${format(progress + min)}"
@@ -194,7 +194,7 @@ class MainActivity : Activity() {
             )
             for ((text, pair) in items) {
                 addView(RadioButton(this@MainActivity).apply {
-                    this@RadioButton.text = text
+                    this.text = text
                     id = pair.first
                 })
             }
