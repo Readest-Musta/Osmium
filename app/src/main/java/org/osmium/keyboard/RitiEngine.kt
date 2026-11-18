@@ -20,6 +20,8 @@ class RitiEngine(private val context: Context) {
     private var riti: OsRiti? = null
     private var currentLayout: String? = null
     private var currentIncognito = false
+    /** User directory the current [riti] instance was actually built with. */
+    private var activeUserDir: String? = null
 
     /** Last engine initialization failure, if any (surfaced in diagnostics). */
     var initError: String? = null
@@ -59,31 +61,63 @@ class RitiEngine(private val context: Context) {
         }
     }
 
+    /** The user directory riti must use for the current privacy state. */
+    private fun effectiveUserDir(): File = if (currentIncognito) scratchDir else userDir
+
+    /**
+     * Single path for (re)creating the native engine. The user directory is
+     * always chosen from the *current* incognito state, so a layout/engine
+     * change can never silently fall back to the persistent user directory.
+     */
+    private fun rebuild(layout: String) {
+        val effectiveDir = effectiveUserDir()
+        effectiveDir.mkdirs()
+        try {
+            riti = OsRiti(
+                databaseDir = dbDir.absolutePath,
+                userDir = effectiveDir.absolutePath,
+                layout = layout,
+            )
+            currentLayout = layout
+            activeUserDir = effectiveDir.absolutePath
+            initError = null
+        } catch (t: Throwable) {
+            riti = null
+            currentLayout = null
+            activeUserDir = null
+            initError = "engine init failed (${t.javaClass.simpleName}): ${t.message ?: t}"
+        }
+    }
+
     /**
      * Incognito mode: point riti at a throwaway user directory so nothing it
      * learns in this session can persist. Leaving incognito wipes the scratch
      * directory and restores the normal context.
      */
     fun setIncognito(active: Boolean) {
-        if (active == currentIncognito && riti != null) return
+        val intendedDir = if (active) scratchDir else userDir
+        // The flag alone is not enough: an earlier layout/engine change could
+        // have rebuilt riti against the other directory while the flag was
+        // stale. Only skip work when the *actual* directory matches as well.
+        if (active == currentIncognito && riti != null &&
+            activeUserDir == intendedDir.absolutePath
+        ) return
         currentIncognito = active
-        val effectiveUserDir = if (active) {
+        if (active) {
             scratchDir.apply { deleteRecursively(); mkdirs() }
         } else {
             scratchDir.deleteRecursively()
-            userDir.apply { mkdirs() }
+            userDir.mkdirs()
         }
         val layout = currentLayout ?: "avro_phonetic"
+        rebuild(layout)
+    }
+
+    /** Removes everything riti learned during an incognito session. */
+    fun clearScratch() {
         try {
-            riti = OsRiti(
-                databaseDir = dbDir.absolutePath,
-                userDir = effectiveUserDir.absolutePath,
-                layout = layout,
-            )
-            currentLayout = layout
-        } catch (t: Throwable) {
-            riti = null
-            initError = "engine init failed (${t.javaClass.simpleName}): ${t.message ?: t}"
+            scratchDir.deleteRecursively()
+        } catch (_: Throwable) {
         }
     }
 
@@ -93,20 +127,12 @@ class RitiEngine(private val context: Context) {
      * layout file such as our bundled Probhat.json.
      */
     fun useLayout(layout: String) {
-        if (layout == currentLayout && riti != null) return
-        try {
-            riti = OsRiti(
-                databaseDir = dbDir.absolutePath,
-                userDir = userDir.absolutePath,
-                layout = layout,
-            )
-            currentLayout = layout
-            initError = null
-        } catch (t: Throwable) {
-            riti = null
-            currentLayout = null
-            initError = "engine init failed (${t.javaClass.simpleName}): ${t.message ?: t}"
-        }
+        // A mode switch while incognito must rebuild against the scratch dir,
+        // never the persistent user dir.
+        if (layout == currentLayout && riti != null &&
+            activeUserDir == effectiveUserDir().absolutePath
+        ) return
+        rebuild(layout)
     }
 
     /** Sends a key press to riti and returns the updated suggestion state. */
@@ -148,7 +174,7 @@ class RitiEngine(private val context: Context) {
     fun isSessionActive(): Boolean = riti?.isSessionActive() ?: false
 
     fun updateEngine(layout: String) {
-        riti?.updateEngine(dbDir.absolutePath, userDir.absolutePath, layout)
-        currentLayout = layout
+        // Go through the shared helper so incognito cannot be bypassed here.
+        rebuild(layout)
     }
 }

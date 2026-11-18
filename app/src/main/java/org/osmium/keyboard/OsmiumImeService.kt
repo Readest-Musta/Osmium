@@ -37,6 +37,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var mode = KeyboardMode.AVRO
     private var latest = RitiEngine.EMPTY
     private var incognito = false
+    /** True when the current editor is a password field (privacy-sensitive UI). */
+    private var currentFieldIsPassword = false
     private var appliedThemeKey: String? = null
     /** Track orientation to rebuild input view on rotation. */
     private var appliedOrientation = -1
@@ -55,6 +57,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
         // Initialise the engine for the saved mode (was missing in v0.1).
         layoutFor(mode)?.let { engine.useLayout(it) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Never let incognito-session learning survive the IME process.
+        engine.clearScratch()
     }
 
     // ------------------------------------------------------------------
@@ -169,14 +177,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // Determine incognito state: user preference OR field privacy flags.
         val noLearning = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         val isPassword = isPasswordField(info)
+        currentFieldIsPassword = isPassword
         incognito = Prefs.incognitoByDefault(this) || noLearning || isPassword
         engine.setIncognito(incognito)
         suggestionBar?.setIncognito(incognito)
+        suggestionBar?.setClipboardEnabled(!incognito)
         engine.finishSession()
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
         setPanelVisible(null)
-        lastWasSpace = false
+        resetDoubleSpace()
         autoCapitalizeIfNeeded()
         captureClipboard()
     }
@@ -186,18 +196,35 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         captureClipboard()
     }
 
+    /** Reads the first text item on the clipboard, or null when unavailable. */
+    private fun currentClipboardText(): String? = try {
+        val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return null
+        cm.primaryClip?.getItemAt(0)?.text?.toString()
+    } catch (_: Throwable) {
+        null
+    }
+
     /** Records newly copied text into the local clipboard history. */
     private fun captureClipboard() {
-        try {
-            val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return
-            val text = cm.primaryClip?.getItemAt(0)?.text?.toString() ?: return
-            if (text.isNotBlank() && text != lastClip && text.length <= 4000) {
-                lastClip = text
-                Prefs.addClipboardItem(this, text)
-                clipboardPanel?.refresh()
-            }
-        } catch (_: Throwable) {
+        val text = currentClipboardText() ?: return
+        if (incognito) {
+            // Never persist clipboard content while incognito. Still remember
+            // it so leaving incognito cannot retroactively backfill text that
+            // was copied during the incognito session.
+            lastClip = text
+            return
         }
+        if (text.isNotBlank() && text != lastClip && text.length <= 4000) {
+            lastClip = text
+            Prefs.addClipboardItem(this, text)
+            clipboardPanel?.refresh()
+        }
+    }
+
+    /** Clears the double-space → দাঁড়ি tracking state. */
+    fun resetDoubleSpace() {
+        lastWasSpace = false
+        lastSpaceAt = 0L
     }
 
     /**
@@ -593,7 +620,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             suggestionBar?.clear()
         } else {
             ic.setComposingText(composed, 1)
-            suggestionBar?.update(s)
+            // In an incognito password field, never echo typed characters in
+            // the suggestion strip — compose silently instead.
+            if (!(incognito && currentFieldIsPassword)) {
+                suggestionBar?.update(s)
+            }
         }
     }
 

@@ -29,6 +29,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     private val numberButton: TextView
     private val clipboardChip: TextView
     private val settingsButton: TextView
+    private var clipboardEnabled = true
 
     init {
         orientation = HORIZONTAL
@@ -89,7 +90,9 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     fun refreshControls() {
         navButton.visibility = if (Prefs.showNavButton(context)) VISIBLE else GONE
         numberButton.visibility = if (Prefs.showNumberToggle(context)) VISIBLE else GONE
-        clipboardChip.visibility = if (Prefs.showClipboardChip(context)) VISIBLE else GONE
+        clipboardChip.visibility =
+            if (clipboardEnabled && Prefs.showClipboardChip(context)) VISIBLE else GONE
+        clipboardChip.isEnabled = clipboardEnabled
         settingsButton.visibility = if (Prefs.showSettingsButton(context)) VISIBLE else GONE
     }
 
@@ -135,6 +138,12 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     /** Shows the incognito badge next to the language button. */
     fun setIncognito(active: Boolean) {
         incognitoIndicator.visibility = if (active) VISIBLE else GONE
+    }
+
+    /** Hides/disables the clipboard chip (e.g. while incognito). */
+    fun setClipboardEnabled(enabled: Boolean) {
+        clipboardEnabled = enabled
+        refreshControls()
     }
 
     fun update(suggestion: OsSuggestion) {
