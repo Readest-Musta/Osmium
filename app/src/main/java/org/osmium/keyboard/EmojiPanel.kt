@@ -62,6 +62,9 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
             val tab = newTab(cat.label, cat)
             tab.setOnClickListener {
                 selected = cat
+                // A tab tap means "show this category", not "keep filtering".
+                searchBox.text?.clear()
+                searchBox.clearFocus()
                 refresh()
             }
             tabs.add(tab)
@@ -80,6 +83,8 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
             val tab = newTab(group.label, group.id)
             tab.setOnClickListener {
                 symbolGroupIndex = index
+                searchBox.text?.clear()
+                searchBox.clearFocus()
                 refresh()
             }
             subTabs.add(tab)
@@ -119,6 +124,33 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         searchBox.setHintTextColor(pal.keyTextHint)
         for (tab in tabs) tab.setTextColor(pal.keyText)
         for (tab in subTabs) tab.setTextColor(pal.keyText)
+    }
+
+    /** True while the search field has focus and on-screen keys should type into it. */
+    fun isSearchFocused(): Boolean = searchBox.hasFocus()
+
+    /** Appends a character/space typed on the on-screen keyboard to the query. */
+    fun appendSearch(text: String) {
+        searchBox.append(text)
+    }
+
+    /** Deletes the character (or selection) before the search caret. */
+    fun backspaceSearch() {
+        val text = searchBox.text ?: return
+        val start = searchBox.selectionStart
+        val end = searchBox.selectionEnd
+        when {
+            start != end -> text.delete(start, end)
+            start > 0 -> {
+                val cp = Character.codePointBefore(text, start)
+                text.delete(start - Character.charCount(cp), start)
+            }
+        }
+    }
+
+    /** Ends search mode so subsequent keys go back to the app's text field. */
+    fun clearSearchFocus() {
+        searchBox.clearFocus()
     }
 
     private fun dp(v: Int): Int = TypedValue.applyDimension(

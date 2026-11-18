@@ -130,7 +130,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
         val isLandscape = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        val panelHeightDp = if (isLandscape) 150 else 230
+        // The keyboard is hidden while a panel is open, so panels can use more
+        // of the landscape height without squeezing the emoji grid to ~24dp.
+        val panelHeightDp = if (isLandscape) 200 else 230
         container.addView(
             suggestionBar,
             LinearLayout.LayoutParams(
@@ -173,9 +175,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         engine.finishSession()
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
-        emojiPanel?.visibility = View.GONE
-        clipboardPanel?.visibility = View.GONE
-        navigationPanel?.visibility = View.GONE
+        setPanelVisible(null)
         lastWasSpace = false
         autoCapitalizeIfNeeded()
         captureClipboard()
@@ -200,16 +200,27 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    /**
+     * Shows [panel] in place of the keyboard (panels are mutually exclusive);
+     * null dismisses every panel and restores the keyboard.
+     */
+    private fun setPanelVisible(panel: View?) {
+        emojiPanel?.visibility = if (panel === emojiPanel) View.VISIBLE else View.GONE
+        clipboardPanel?.visibility = if (panel === clipboardPanel) View.VISIBLE else View.GONE
+        navigationPanel?.visibility = if (panel === navigationPanel) View.VISIBLE else View.GONE
+        keyboardView?.visibility = if (panel == null) View.VISIBLE else View.GONE
+    }
+
+    /** True while the emoji search field is open and should receive on-screen keys. */
+    private fun emojiSearchActive(): Boolean =
+        emojiPanel?.visibility == View.VISIBLE && emojiPanel?.isSearchFocused() == true
+
     private fun toggleClipboardPanel() = guarded {
         haptic()
         val clip = clipboardPanel ?: return@guarded
-        val clipShowing = clip.visibility == View.VISIBLE
-        clip.visibility = if (clipShowing) View.GONE else View.VISIBLE
-        if (!clipShowing) {
-            clip.refresh()
-            emojiPanel?.visibility = View.GONE
-            navigationPanel?.visibility = View.GONE
-        }
+        val opening = clip.visibility != View.VISIBLE
+        if (opening) clip.refresh()
+        setPanelVisible(if (opening) clip else null)
     }
 
     private fun isPasswordField(info: EditorInfo): Boolean {
@@ -238,6 +249,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onKey(code: String, shifted: Boolean, altgr: Boolean) = guarded {
         haptic()
         val char = if (shifted) code.uppercase() else code
+        // Touch-only devices: type into the emoji search box while it is focused,
+        // instead of committing the character to the app's text field.
+        if (emojiSearchActive()) {
+            emojiPanel?.appendSearch(char)
+            return@guarded
+        }
         val modifier = if (altgr) MODIFIER_ALT_GR else 0
         when (mode) {
             KeyboardMode.ENGLISH -> {
@@ -256,6 +273,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onSpace() = guarded {
         haptic()
+        if (emojiSearchActive()) {
+            emojiPanel?.appendSearch(" ")
+            return@guarded
+        }
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
@@ -307,6 +328,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onBackspace() = guarded {
         haptic()
+        if (emojiSearchActive()) {
+            emojiPanel?.backspaceSearch()
+            return@guarded
+        }
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             // Riti owns the composition; let it recompute.
@@ -376,7 +401,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun hideNavigationPanel() {
-        navigationPanel?.visibility = View.GONE
+        // Restore the keyboard too — with a panel open it is GONE.
+        setPanelVisible(null)
     }
 
     /**
@@ -484,6 +510,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onEnter() = guarded {
         haptic()
+        if (emojiSearchActive()) {
+            // Done searching: end search mode and hand the keyboard back.
+            emojiPanel?.clearSearchFocus()
+            setPanelVisible(null)
+            return@guarded
+        }
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
@@ -500,12 +532,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onEmojiToggle() = guarded {
         haptic()
         val panel = emojiPanel ?: return@guarded
-        val showing = panel.visibility == View.VISIBLE
-        panel.visibility = if (showing) View.GONE else View.VISIBLE
-        if (!showing) {
-            clipboardPanel?.visibility = View.GONE
-            navigationPanel?.visibility = View.GONE
-        }
+        val opening = panel.visibility != View.VISIBLE
+        if (opening) panel.refresh()
+        setPanelVisible(if (opening) panel else null)
     }
 
     override fun onNumberRowToggle() = guarded {
@@ -516,13 +545,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onNavigationToggle() = guarded {
         haptic()
         val nav = navigationPanel ?: return@guarded
-        val showing = nav.visibility == View.VISIBLE
-        nav.visibility = if (showing) View.GONE else View.VISIBLE
-        if (!showing) {
-            navigationPanel?.refreshTheme()
-            emojiPanel?.visibility = View.GONE
-            clipboardPanel?.visibility = View.GONE
-        }
+        val opening = nav.visibility != View.VISIBLE
+        if (opening) nav.refreshTheme()
+        setPanelVisible(if (opening) nav else null)
     }
 
     // ------------------------------------------------------------------
