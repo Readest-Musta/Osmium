@@ -197,11 +197,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     /** Reads the first text item on the clipboard, or null when unavailable. */
-    private fun currentClipboardText(): String? = try {
-        val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return null
-        cm.primaryClip?.getItemAt(0)?.text?.toString()
-    } catch (_: Throwable) {
-        null
+    private fun currentClipboardText(): String? {
+        return try {
+            val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return null
+            cm.primaryClip?.getItemAt(0)?.text?.toString()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /** Records newly copied text into the local clipboard history. */
