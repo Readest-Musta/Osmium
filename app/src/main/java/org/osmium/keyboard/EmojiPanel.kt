@@ -9,16 +9,6 @@ import android.widget.GridView
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** Emoji categories shown as tabs. */
-enum class EmojiCategory(val label: String) {
-    RECENTS("🕘"),
-    SMILEYS("😀"),
-    GESTURES("✌"),
-    HEARTS("❤"),
-    NATURE("🌸"),
-    OBJECTS("💡");
-}
-
 /**
  * Emoji picker panel. Small, fast, fully offline.
  */
