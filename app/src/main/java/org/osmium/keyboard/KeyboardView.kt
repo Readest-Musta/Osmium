@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
@@ -186,12 +188,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         }
 
     private fun loadLabels() {
+        fun bundled(): Map<String, LayoutLabels.Entry> = LayoutLabels.fromLayoutJson(
+            JSONObject(context.assets.open("layouts/probhat-labels.json").bufferedReader().readText())
+        )
+        // A missing/corrupt user layout must never degrade into raw key codes.
         labels = try {
             val raw = userLayoutPath?.let { File(it).readText() }
-                ?: context.assets.open("layouts/probhat-labels.json").bufferedReader().readText()
-            LayoutLabels.fromLayoutJson(JSONObject(raw))
+            if (raw == null) bundled()
+            else LayoutLabels.fromLayoutJson(JSONObject(raw)).ifEmpty { bundled() }
         } catch (_: Throwable) {
-            emptyMap()
+            try { bundled() } catch (_: Throwable) { emptyMap() }
         }
     }
 
@@ -533,8 +539,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     private fun showPopup(anchor: OsmiumKey, entries: List<PopupEntry>) {
         hidePopup()
+        // Never render blank chips: a missing label must not become a blank choice.
+        val usable = entries.filter { it.label.isNotBlank() }
+        if (usable.isEmpty()) return
         val chipWidth = dp(42)
-        val popupWidth = entries.size * chipWidth + dp(10)
+        val popupWidth = usable.size * chipWidth + dp(10)
         val popupHeight = dp(48)
 
         val locKey = IntArray(2).also { anchor.getLocationInWindow(it) }
@@ -553,7 +562,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             setPadding(dp(5), dp(1), dp(5), dp(1))
         }
         popupChips = mutableListOf()
-        for (entry in entries) {
+        for (entry in usable) {
             val chip = TextView(context).apply {
                 gravity = Gravity.CENTER
                 text = entry.label
@@ -889,6 +898,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         val shifted = shift || capsLock
         for (key in keys) {
             val tag = key.tag as? String ?: continue
+            key.hasAltGr = false
             when (tag) {
                 "shift" -> {
                     // A distinct glyph for caps lock so the two states are
@@ -908,7 +918,13 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                 } else ""
                 "enter" -> key.text = enterLabel()
                 "backspace", "emoji" -> Unit // static labels
-                else -> key.text = labelFor(tag, shifted)
+                else -> {
+                    key.text = labelFor(tag, shifted)
+                    // A small superscript dot marks keys that hide an AltGr layer
+                    // behind long-press, so alternates are self-evident.
+                    key.hasAltGr = mode == KeyboardMode.PROBHAT &&
+                        labels[tag]?.a?.isNotBlank() == true
+                }
             }
         }
     }
@@ -935,6 +951,26 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     /** A single key. */
     @SuppressLint("ViewConstructor")
     inner class OsmiumKey(context: Context, val kind: OsmiumKeyKind) : TextView(context) {
+
+        /** Draw a small AltGr dot in the top-right corner when this key has an alternate. */
+        var hasAltGr: Boolean = false
+            set(value) {
+                if (field != value) {
+                    field = value
+                    invalidate()
+                }
+            }
+
+        private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            if (!hasAltGr) return
+            badgePaint.color = pal.accent
+            val r = dp(2).toFloat().coerceAtLeast(1.5f)
+            val pad = dp(3).toFloat()
+            canvas.drawCircle(width - pad - r, pad + r, r, badgePaint)
+        }
 
         init {
             gravity = Gravity.CENTER
@@ -986,6 +1022,31 @@ object LayoutLabels {
     /** (normal, shifted, altGr) labels for one physical key. */
     data class Entry(val n: String, val s: String, val a: String?)
 
+    /**
+     * Physical char -> Android `Key_<Name>_*` suffix for punctuation. This is the
+     * complete set used by OpenBangla layouts (Probhat has 32 such names); an
+     * incomplete map silently drops alternates such as Key_Ampersand_AltGr.
+     */
+    val NAMES: Map<Char, String> = mapOf(
+        ',' to "Comma", '.' to "Period", ';' to "Semicolon", ':' to "Colon",
+        '\'' to "Apostrophe", '"' to "Quote", '!' to "Exclaim", '?' to "Question",
+        '-' to "Minus", '/' to "Slash", '\\' to "BackSlash", '=' to "Equals",
+        '+' to "Plus", '@' to "At", '#' to "Hash", '$' to "Dollar",
+        '%' to "Percent", '^' to "Circum", '&' to "Ampersand", '*' to "Asterisk",
+        '(' to "ParenLeft", ')' to "ParenRight", '[' to "BracketLeft", ']' to "BracketRight",
+        '{' to "BraceLeft", '}' to "BraceRight", '|' to "Bar", '<' to "Less",
+        '>' to "Greater", '~' to "Tilde", '`' to "Grave", '_' to "UnderScore"
+    )
+
+    /** Every physical key char [fromLayoutJson] understands. */
+    val KEYS: List<Char> = "qwertyuiopasdfghjklzxcvbnm0123456789".toList() + NAMES.keys
+
+    /** Android `Key_<Name>` -> physical key char (inverse of [NAMES] for punctuation). */
+    fun codeFor(name: String): String? = when {
+        name.length == 1 -> name
+        else -> NAMES.entries.firstOrNull { it.value == name }?.key?.toString()
+    }
+
     fun fromLayoutJson(root: JSONObject): Map<String, Entry> {
         val map = mutableMapOf<String, Entry>()
 
@@ -1016,13 +1077,6 @@ object LayoutLabels {
         }
 
         // OpenBangla layout format: { Key_q_Normal: "দ", Key_q_AltGr: ... , ... }
-        val KEYS = ("qwertyuiopasdfghjklzxcvbnm0123456789" +
-                ",.;:'\"?!-/\\")
-        val NAMES = mapOf(
-            ',' to "Comma", '.' to "Period", ';' to "Semicolon", ':' to "Colon",
-            '\'' to "Apostrophe", '"' to "Quote", '!' to "Exclaim", '?' to "Question",
-            '-' to "Minus", '/' to "Slash", '\\' to "Backslash"
-        )
         for (c in KEYS) {
             val name = if (c.isLetterOrDigit()) c.toString() else NAMES[c] ?: continue
             val normal = root.optString("Key_${name}_Normal", "")

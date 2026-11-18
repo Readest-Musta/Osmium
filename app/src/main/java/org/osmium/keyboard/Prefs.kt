@@ -276,6 +276,14 @@ object Prefs {
         sp(context).edit().putString(KEY_LAYOUT, name).apply()
     }
 
+    /** Layout selected before the most recent import — used for one-tap rollback. */
+    fun previousLayout(context: Context): String =
+        sp(context).getString(KEY_PREVIOUS_LAYOUT, "probhat") ?: "probhat"
+
+    fun setPreviousLayout(context: Context, name: String) {
+        sp(context).edit().putString(KEY_PREVIOUS_LAYOUT, name).apply()
+    }
+
     /** Directory where imported layout JSON files live. */
     fun layoutsDir(context: Context): File {
         val dir = File(context.filesDir, "layouts")
@@ -381,4 +389,5 @@ object Prefs {
     private const val KEY_TOOL_SET = "toolbar_settings"
     private const val KEY_TOOL_NAV = "toolbar_nav"
     private const val KEY_LAYOUT = "selected_layout"
+    private const val KEY_PREVIOUS_LAYOUT = "previous_layout"
 }

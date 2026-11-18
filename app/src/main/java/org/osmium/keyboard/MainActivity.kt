@@ -423,6 +423,76 @@ class MainActivity : Activity() {
             }
         }
         add(deleteButton)
+
+        // Recovery for a layout that fails to load in the engine: a permanent
+        // way back to the bundled Probhat, plus one-tap undo of the last import.
+        add(Button(this).apply {
+            text = "Revert to bundled Probhat"
+            setOnClickListener {
+                Prefs.setSelectedLayout(this@MainActivity, "probhat")
+                toast("Reverted to bundled Probhat — reopen the keyboard")
+                recreate()
+            }
+        })
+        val previous = Prefs.previousLayout(this)
+        if (previous != "probhat" && File(Prefs.layoutsDir(this), previous).exists()) {
+            add(Button(this).apply {
+                text = "Undo last layout import (${previous.removeSuffix(".json")})"
+                setOnClickListener {
+                    Prefs.setSelectedLayout(this@MainActivity, previous)
+                    toast("Restored previous layout — reopen the keyboard")
+                    recreate()
+                }
+            })
+        }
+    }
+
+    /**
+     * Strict, atomic layout import (Task 6). Rejects label-only JSON that riti
+     * cannot load, installs via temp-file + rename, and records the previously
+     * selected layout so a bad import can be rolled back from Settings.
+     */
+    private fun importLayout(uri: Uri) {
+        try {
+            val json = contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
+                ?: throw java.io.IOException("Could not read the file")
+            val error = LayoutImport.validate(json)
+            if (error != null) {
+                toast("Layout import failed: $error")
+                return
+            }
+
+            val dir = Prefs.layoutsDir(this)
+            val base = (uri.lastPathSegment ?: "layout")
+                .substringAfterLast('/')
+                .substringAfterLast(':')
+                .substringBeforeLast(".json")
+                .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+                .take(40)
+                .ifEmpty { "layout" }
+            var name = "$base.json"
+            var n = 1
+            while (File(dir, name).exists()) { n++; name = "$base-$n.json" }
+
+            // Atomic install: never leave a half-written file the engine could
+            // choke on (and never touch the previous layout until this succeeds).
+            val tmp = File(dir, "$name.tmp")
+            try {
+                tmp.writeText(json)
+                if (!tmp.renameTo(File(dir, name))) {
+                    throw java.io.IOException("Could not install layout file")
+                }
+            } finally {
+                if (tmp.exists()) tmp.delete()
+            }
+
+            Prefs.setPreviousLayout(this, Prefs.selectedLayout(this))
+            Prefs.setSelectedLayout(this, name)
+            toast("Layout imported — reopen the keyboard")
+            recreate()
+        } catch (t: Throwable) {
+            toast("Layout import failed: ${t.message}")
+        }
     }
 
     private fun buildBackupSection() {
@@ -609,35 +679,7 @@ class MainActivity : Activity() {
             } catch (t: Throwable) {
                 toast("Import failed: ${t.message}")
             }
-            REQ_LAYOUT -> try {
-                val json = contentResolver.openInputStream(uri)!!
-                    .bufferedReader().readText()
-                val root = org.json.JSONObject(json)
-                val looksLikeLayout = root.optJSONObject("layout")?.let { l ->
-                    l.keys().asSequence().any { it.endsWith("_Normal") }
-                } == true || root.has("letters")
-                if (!looksLikeLayout) {
-                    toast("That file does not look like an OpenBangla layout")
-                } else {
-                    val dir = Prefs.layoutsDir(this)
-                    val base = (uri.lastPathSegment ?: "layout")
-                        .substringAfterLast('/')
-                        .substringAfterLast(':')
-                        .substringBeforeLast(".json")
-                        .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
-                        .take(40)
-                        .ifEmpty { "layout" }
-                    var name = "$base.json"
-                    var n = 1
-                    while (File(dir, name).exists()) { n++; name = "$base-$n.json" }
-                    File(dir, name).writeText(json)
-                    Prefs.setSelectedLayout(this, name)
-                    toast("Layout imported — reopen the keyboard")
-                    recreate()
-                }
-            } catch (t: Throwable) {
-                toast("Layout import failed: ${t.message}")
-            }
+            REQ_LAYOUT -> importLayout(uri)
         }
     }
 
