@@ -74,6 +74,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         EmojiCategory.HEARTS -> HEARTS
         EmojiCategory.NATURE -> NATURE
         EmojiCategory.OBJECTS -> OBJECTS
+        else -> emptyList() // Task 2 reworks this mapping; keep the enum switch exhaustive for now.
     }
 
     private fun refresh() {
