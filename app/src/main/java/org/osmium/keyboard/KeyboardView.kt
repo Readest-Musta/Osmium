@@ -89,10 +89,43 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private val actionTextSize = BASE_ACTION_TEXT * Prefs.keyFontScale(context) / 100f
     private val radiusDp = Prefs.keyRadiusDp(context)
     private val showSpacebarLabel = Prefs.spacebarLabel(context)
-    private val longPressMs = Prefs.longPressMs(context).toLong()
-    private val repeatMs = Prefs.backspaceRepeatMs(context).toLong()
 
     private val handler = Handler(Looper.getMainLooper())
+
+    // Timed gesture callbacks live on the view (not in touch-listener locals) so they
+    // can all be cancelled when the view is detached/replaced (B12).
+    private var navLongPressRunnable: Runnable? = null
+    private var backspaceRepeatRunnable: Runnable? = null
+    private var spaceGlideActive = false
+    private var activeTouchCount = 0
+
+    /** Raw (screen-space) coordinates of [pointerId], or null if it is not in [ev]. */
+    private fun MotionEvent.rawOf(pointerId: Int): Pair<Float, Float>? {
+        if (pointerId == INVALID_POINTER_ID) return null
+        val index = findPointerIndex(pointerId)
+        return if (index >= 0) getRawX(index) to getRawY(index) else null
+    }
+
+    /** Cancel every pending/timed gesture callback and clear transient gesture state. */
+    private fun cancelGestureCallbacks() {
+        pendingLongPress?.let { handler.removeCallbacks(it) }
+        pendingLongPress = null
+        navLongPressRunnable?.let { handler.removeCallbacks(it) }
+        navLongPressRunnable = null
+        backspaceRepeatRunnable?.let { handler.removeCallbacks(it) }
+        backspaceRepeatRunnable = null
+        spaceGlideActive = false
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        cancelGestureCallbacks()
+        hidePopup()
+        for (key in keys) key.isPressed = false
+        activeTouchCount = 0
+        // The IME rebuilds this view; never let a detached view receive callbacks.
+        listener = null
+    }
 
     private val rows: LinearLayout
     private val keys = mutableListOf<OsmiumKey>()
@@ -253,9 +286,29 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     @SuppressLint("ClickableViewAccessibility")
     private fun attachKeyTouch(key: OsmiumKey, code: String, digitRow: Boolean) {
         keys.add(key)
+        var activePointerId = INVALID_POINTER_ID
+
+        /** Finish this key's gesture; a non-owning pointer never commits (B11). */
+        fun endGesture(commit: Boolean) {
+            if (activePointerId == INVALID_POINTER_ID) return
+            key.isPressed = false
+            val wasPopup = popup != null
+            cancelPendingLongPress()
+            if (commit) {
+                if (wasPopup) commitHighlightedChip() else charTap(code, digitRow)
+            }
+            hidePopup()
+            activePointerId = INVALID_POINTER_ID
+            activeTouchCount = (activeTouchCount - 1).coerceAtLeast(0)
+        }
+
         key.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (activePointerId == INVALID_POINTER_ID) {
+                        activePointerId = ev.getPointerId(0)
+                        activeTouchCount++
+                    }
                     key.isPressed = true
                     cancelPendingLongPress()
                     val entries = popupsFor(code, digitRow)
@@ -266,26 +319,27 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                             listener?.onFeedback()
                         }
                         pendingLongPress = r
-                        handler.postDelayed(r, longPressMs)
+                        handler.postDelayed(r, Prefs.longPressMs(context).toLong())
                     }
                     true
                 }
+                MotionEvent.ACTION_POINTER_DOWN -> true // secondary pointer: ignore
                 MotionEvent.ACTION_MOVE -> {
-                    if (popup != null) highlightChipAt(ev.rawX, ev.rawY)
+                    val p = ev.rawOf(activePointerId) ?: return@setOnTouchListener true
+                    if (popup != null) highlightChipAt(p.first, p.second)
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    key.isPressed = false
-                    val wasPopup = popup != null
-                    cancelPendingLongPress()
-                    if (ev.actionMasked == MotionEvent.ACTION_UP) {
-                        if (wasPopup) {
-                            commitHighlightedChip()
-                        } else {
-                            charTap(code, digitRow)
-                        }
-                    }
-                    hidePopup()
+                MotionEvent.ACTION_POINTER_UP -> {
+                    // Only the owning pointer may finalize the popup when it lifts.
+                    if (ev.getPointerId(ev.actionIndex) == activePointerId) endGesture(commit = true)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    endGesture(commit = ev.getPointerId(ev.actionIndex) == activePointerId)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    endGesture(commit = false)
                     true
                 }
                 else -> false
@@ -319,26 +373,44 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun attachSpaceGlide(space: OsmiumKey) {
+        var activePointerId = INVALID_POINTER_ID
         var downX = 0f
-        var glideActive = false
+        var downY = 0f
         var accumulated = 0f
         var hapticSteps = 0
         var navLongPressFired = false
-        var navLongPressRunnable: Runnable? = null
 
         fun cancelNavLongPress() {
             navLongPressRunnable?.let { handler.removeCallbacks(it) }
             navLongPressRunnable = null
         }
 
+        fun endGesture(commit: Boolean) {
+            if (activePointerId == INVALID_POINTER_ID) return
+            val wasNavFired = navLongPressFired
+            val wasGliding = spaceGlideActive
+            cancelNavLongPress()
+            space.isPressed = false
+            if (commit && !wasNavFired && !wasGliding) listener?.onSpace()
+            spaceGlideActive = false
+            navLongPressFired = false
+            activePointerId = INVALID_POINTER_ID
+            activeTouchCount = (activeTouchCount - 1).coerceAtLeast(0)
+        }
+
         space.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (activePointerId == INVALID_POINTER_ID) {
+                        activePointerId = ev.getPointerId(0)
+                        activeTouchCount++
+                    }
                     downX = ev.rawX
+                    downY = ev.rawY
                     accumulated = 0f
-                    glideActive = false
                     hapticSteps = 0
                     navLongPressFired = false
+                    space.isPressed = true
                     cancelNavLongPress()
                     val r = Runnable {
                         navLongPressRunnable = null
@@ -348,25 +420,33 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         listener?.onFeedback()
                     }
                     navLongPressRunnable = r
-                    handler.postDelayed(r, longPressMs)
+                    handler.postDelayed(r, Prefs.longPressMs(context).toLong())
                     true
                 }
+                MotionEvent.ACTION_POINTER_DOWN -> true // secondary pointer: ignore
                 MotionEvent.ACTION_MOVE -> {
-                    if (!navLongPressFired && !glideActive) {
-                        if (Math.abs(ev.rawX - downX) > dp(GLIDE_START_DP)) {
+                    val p = ev.rawOf(activePointerId) ?: return@setOnTouchListener true
+                    val x = p.first
+                    val y = p.second
+                    // Any decisive movement (horizontal or vertical) cancels the
+                    // stillness-based nav long-press.
+                    if (!navLongPressFired && !spaceGlideActive) {
+                        if (Math.abs(x - downX) > dp(GLIDE_START_DP) ||
+                            Math.abs(y - downY) > dp(NAV_MOVE_CANCEL_DY_DP)
+                        ) {
                             cancelNavLongPress()
                         }
                     }
-                    if (Prefs.glideCursor(context) && !glideActive) {
-                        glideActive = Math.abs(ev.rawX - downX) > dp(GLIDE_START_DP)
-                        if (glideActive) {
+                    if (Prefs.glideCursor(context) && !spaceGlideActive) {
+                        spaceGlideActive = Math.abs(x - downX) > dp(GLIDE_START_DP)
+                        if (spaceGlideActive) {
                             space.isPressed = false
                             listener?.onFeedback()
                         }
                     }
-                    if (glideActive) {
-                        accumulated += ev.rawX - downX
-                        downX = ev.rawX
+                    if (spaceGlideActive) {
+                        accumulated += x - downX
+                        downX = x
                         val step = dp(Prefs.glideSensitivityDp(context)).coerceAtLeast(dp(8)).toFloat()
                         val steps = (accumulated / step).toInt()
                         if (steps != 0) {
@@ -381,17 +461,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     }
                     true
                 }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (ev.getPointerId(ev.actionIndex) == activePointerId) endGesture(commit = true)
+                    true
+                }
                 MotionEvent.ACTION_UP -> {
-                    cancelNavLongPress()
-                    if (!navLongPressFired && !glideActive) listener?.onSpace()
-                    glideActive = false
-                    navLongPressFired = false
+                    endGesture(commit = ev.getPointerId(ev.actionIndex) == activePointerId)
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    cancelNavLongPress()
-                    glideActive = false
-                    navLongPressFired = false
+                    endGesture(commit = false)
                     true
                 }
                 else -> false
@@ -400,9 +479,18 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 
     private companion object {
+        /** Sentinel for "no pointer owns this gesture". */
+        const val INVALID_POINTER_ID = -1
+
         /** Horizontal drag (dp) before a space tap becomes a cursor glide. */
         const val GLIDE_START_DP = 18
         const val GLIDE_HAPTIC_EVERY = 3
+
+        /** Slop (dp) for accepting a near-miss chip during popup slide-select. */
+        const val POPUP_HIT_SLOP_DP = 4
+
+        /** Vertical travel (dp) off the spacebar that cancels its nav long-press. */
+        const val NAV_MOVE_CANCEL_DY_DP = 24
 
         const val BASE_KEY_DP = 46
         const val BASE_CHAR_TEXT = 18f
@@ -473,17 +561,31 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun highlightChipAt(rawX: Float, rawY: Float) {
-        var found = -1
+        // MotionEvent.rawX/rawY are screen-absolute; chips must be measured in the
+        // same space via getLocationOnScreen() (getLocationInWindow() is offset by
+        // the bottom-anchored IME window and can never match raw coords) — A1.
+        val slop = dp(POPUP_HIT_SLOP_DP).toFloat()
         val loc = IntArray(2)
+        var nearest = -1
+        var nearestDist = Float.MAX_VALUE
         for ((i, pair) in popupChips.withIndex()) {
-            pair.first.getLocationInWindow(loc)
-            if (rawX >= loc[0] && rawX <= loc[0] + pair.first.width &&
-                rawY >= loc[1] && rawY <= loc[1] + pair.first.height
-            ) {
-                found = i
-                break
+            val chip = pair.first
+            chip.getLocationOnScreen(loc)
+            val left = loc[0].toFloat()
+            val top = loc[1].toFloat()
+            val right = left + chip.width
+            val bottom = top + chip.height
+            // Distance from the touch point to the chip rect (0 when inside). This
+            // gives both exact hits and nearest-chip selection within `slop`.
+            val dx = maxOf(left - rawX, 0f, rawX - right)
+            val dy = maxOf(top - rawY, 0f, rawY - bottom)
+            val dist = dx * dx + dy * dy
+            if (dist < nearestDist) {
+                nearestDist = dist
+                nearest = i
             }
         }
+        val found = if (nearestDist <= slop * slop) nearest else -1
         if (found != highlightedChip) {
             highlightedChip = found
             for ((i, pair) in popupChips.withIndex()) {
@@ -499,7 +601,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     }
 
     private fun commitHighlightedChip() {
-        val entry = popupChips.getOrNull(highlightedChip)?.second ?: return
+        if (popupChips.isEmpty()) return
+        // A clean long-press with no slide previously committed nothing (the base
+        // key was swallowed). Fall back to the anchor/center popup chip instead.
+        val index = if (highlightedChip in popupChips.indices) highlightedChip else popupChips.size / 2
+        val entry = popupChips[index].second
         listener?.onKey(entry.code, shifted = false, altgr = entry.altgr)
     }
 
@@ -546,16 +652,40 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             tag = "backspace"
             text = "⌫"
             // Hold to repeat-delete; swipe left for word delete, down for line delete.
-            var repeatRunnable: Runnable? = null
+            var activePointerId = INVALID_POINTER_ID
             var downX = 0f
             var downY = 0f
             var wordStartX = 0f
             var swipeFired = false
             var lineDeleted = false
             var repeatStarted = false
-            setOnTouchListener { v, ev ->
+
+            fun cancelRepeat() {
+                backspaceRepeatRunnable?.let { handler.removeCallbacks(it) }
+                backspaceRepeatRunnable = null
+            }
+
+            fun endGesture(commit: Boolean) {
+                if (activePointerId == INVALID_POINTER_ID) return
+                cancelRepeat()
+                isPressed = false
+                if (commit && !swipeFired && !repeatStarted) {
+                    listener?.onBackspace()
+                }
+                swipeFired = false
+                lineDeleted = false
+                repeatStarted = false
+                activePointerId = INVALID_POINTER_ID
+                activeTouchCount = (activeTouchCount - 1).coerceAtLeast(0)
+            }
+
+            setOnTouchListener { _, ev ->
                 when (ev.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        if (activePointerId == INVALID_POINTER_ID) {
+                            activePointerId = ev.getPointerId(0)
+                            activeTouchCount++
+                        }
                         downX = ev.rawX
                         downY = ev.rawY
                         wordStartX = ev.rawX
@@ -563,43 +693,47 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         lineDeleted = false
                         repeatStarted = false
                         isPressed = true
+                        cancelRepeat()
                         val r: Runnable = object : Runnable {
                             override fun run() {
                                 repeatStarted = true
                                 listener?.onBackspace()
-                                handler.postDelayed(this, repeatMs)
+                                handler.postDelayed(
+                                    this,
+                                    Prefs.backspaceRepeatMs(context).toLong().coerceAtLeast(16L)
+                                )
                             }
                         }
-                        repeatRunnable = r
-                        handler.postDelayed(r, longPressMs)
+                        backspaceRepeatRunnable = r
+                        handler.postDelayed(r, Prefs.longPressMs(context).toLong())
                         true
                     }
+                    MotionEvent.ACTION_POINTER_DOWN -> true // secondary pointer: ignore
                     MotionEvent.ACTION_MOVE -> {
+                        val p = ev.rawOf(activePointerId) ?: return@setOnTouchListener true
                         if (Prefs.swipeDeleteEnabled(context) && !lineDeleted) {
                             val threshold = Prefs.swipeStepDp(context).toFloat()
-                            val dxDp = pxToDp(ev.rawX - downX)
-                            val dyDp = pxToDp(ev.rawY - downY)
+                            val dxDp = pxToDp(p.first - downX)
+                            val dyDp = pxToDp(p.second - downY)
                             // classify() treats negative dy as downward; Android dy is positive down.
                             when (SwipeResolver.classify(dxDp, -dyDp, threshold)) {
                                 SwipeResolver.Action.DELETE_LINE -> {
-                                    repeatRunnable?.let { handler.removeCallbacks(it) }
-                                    repeatRunnable = null
+                                    cancelRepeat()
                                     listener?.onDeleteToLineStart()
                                     lineDeleted = true
                                     swipeFired = true
                                 }
                                 SwipeResolver.Action.DELETE_WORD -> {
-                                    val wordDxDp = pxToDp(ev.rawX - wordStartX)
+                                    val wordDxDp = pxToDp(p.first - wordStartX)
                                     if (wordDxDp < 0f) {
                                         val steps = SwipeResolver.stepsFor(wordDxDp, threshold)
                                         if (steps > 0) {
                                             if (!swipeFired) {
-                                                repeatRunnable?.let { handler.removeCallbacks(it) }
-                                                repeatRunnable = null
+                                                cancelRepeat()
                                                 swipeFired = true
                                             }
                                             repeat(steps) { listener?.onDeleteWord() }
-                                            wordStartX = ev.rawX
+                                            wordStartX = p.first
                                         }
                                     }
                                 }
@@ -608,25 +742,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         }
                         true
                     }
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        if (ev.getPointerId(ev.actionIndex) == activePointerId) endGesture(commit = true)
+                        true
+                    }
                     MotionEvent.ACTION_UP -> {
-                        repeatRunnable?.let { handler.removeCallbacks(it) }
-                        repeatRunnable = null
-                        isPressed = false
-                        if (!swipeFired && !repeatStarted) {
-                            listener?.onBackspace()
-                        }
-                        swipeFired = false
-                        lineDeleted = false
-                        repeatStarted = false
+                        endGesture(commit = ev.getPointerId(ev.actionIndex) == activePointerId)
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
-                        repeatRunnable?.let { handler.removeCallbacks(it) }
-                        repeatRunnable = null
-                        isPressed = false
-                        swipeFired = false
-                        lineDeleted = false
-                        repeatStarted = false
+                        endGesture(commit = false)
                         true
                     }
                     else -> false
@@ -703,6 +828,14 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     /** True while either shift or caps lock is engaged. */
     fun isShiftActive(): Boolean = shift || capsLock
+
+    /**
+     * True while a gesture is in progress: a pointer is down, a popup is showing,
+     * a glide is active, or a timed long-press/repeat callback is pending.
+     */
+    fun isGestureActive(): Boolean =
+        activeTouchCount > 0 || popup != null || spaceGlideActive ||
+            pendingLongPress != null || navLongPressRunnable != null || backspaceRepeatRunnable != null
 
     fun relabelAll() {
         val shifted = shift || capsLock
