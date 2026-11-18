@@ -1076,13 +1076,16 @@ object LayoutLabels {
             return map
         }
 
-        // OpenBangla layout format: { Key_q_Normal: "দ", Key_q_AltGr: ... , ... }
+        // OpenBangla layout format: { layout: { Key_q_Normal: "দ", Key_q_AltGr: … } }.
+        // Full layout files (Probhat.json and user imports) nest the Key_* entries
+        // under "layout"; accept a flat object too for compatibility.
+        val layout = root.optJSONObject("layout") ?: root
         for (c in KEYS) {
             val name = if (c.isLetterOrDigit()) c.toString() else NAMES[c] ?: continue
-            val normal = root.optString("Key_${name}_Normal", "")
+            val normal = layout.optString("Key_${name}_Normal", "")
             if (normal.isEmpty()) continue
-            val shifted = root.optString("Key_${name.uppercase()}_Normal", "")
-            val altGr = root.optString("Key_${name}_AltGr", "")
+            val shifted = layout.optString("Key_${name.uppercase()}_Normal", "")
+            val altGr = layout.optString("Key_${name}_AltGr", "")
             addLabel(c.toString(), normal, shifted.ifEmpty { normal }, altGr)
         }
         return map
