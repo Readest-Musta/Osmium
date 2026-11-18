@@ -16,9 +16,10 @@ class GestureResolverTest {
         assertEquals(GestureResolver.LEFT, GestureResolver.edgeDirection(72f, width, edge))
         assertEquals(GestureResolver.NONE, GestureResolver.edgeDirection(73f, width, edge))
         assertEquals(GestureResolver.NONE, GestureResolver.edgeDirection(540f, width, edge))
-        assertEquals(GestureResolver.RIGHT, GestureResolver.edgeDirection(1007f, width, edge))
-        assertEquals(GestureResolver.RIGHT, GestureResolver.edgeDirection(1008f, width, edge))
         assertEquals(GestureResolver.NONE, GestureResolver.edgeDirection(1006f, width, edge))
+        assertEquals(GestureResolver.NONE, GestureResolver.edgeDirection(1007f, width, edge))
+        // width - edge = 1008 is the first pixel inside the right edge zone.
+        assertEquals(GestureResolver.RIGHT, GestureResolver.edgeDirection(1008f, width, edge))
     }
 
     @Test
