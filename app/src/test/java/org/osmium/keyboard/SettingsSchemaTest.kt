@@ -39,6 +39,11 @@ class SettingsSchemaTest {
         assertEquals("key_radius_dp" to 0, SettingsSchema.normalize("key_radius_dp", -5))
         // Large JSON integers (written as Long) must clamp, not overflow into a valid value.
         assertEquals("haptic_ms" to 40, SettingsSchema.normalize("haptic_ms", 100_000_000_000L))
+        // glide edge speed slider is 20..150ms
+        assertEquals("glide_edge_repeat_ms" to 150,
+            SettingsSchema.normalize("glide_edge_repeat_ms", 9999L))
+        assertEquals("glide_edge_repeat_ms" to 20,
+            SettingsSchema.normalize("glide_edge_repeat_ms", 1))
     }
 
     @Test
@@ -66,6 +71,7 @@ class SettingsSchemaTest {
             "backspace_repeat_ms" to 60 as Any,
             "glide_cursor_enabled" to true as Any,
             "glide_sensitivity_dp" to 22 as Any,
+            "glide_edge_repeat_ms" to 40 as Any,
             "key_height_scale" to 100 as Any,
             "bg_image_path" to "" as Any,
             "custom_color_accent" to "4F8CFF" as Any,

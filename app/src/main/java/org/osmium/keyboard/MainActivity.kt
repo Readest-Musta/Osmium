@@ -361,6 +361,8 @@ class MainActivity : Activity() {
             { Prefs.setGlideCursor(this, it) }))
         add(sliderSetting("Glide sensitivity", 10, 60, Prefs.glideSensitivityDp(this),
             { "${it}dp per character" }, { Prefs.setGlideSensitivityDp(this, it) }))
+        add(sliderSetting("Glide edge speed", 20, 150, Prefs.glideEdgeRepeatMs(this),
+            { "every ${it}ms" }, { Prefs.setGlideEdgeRepeatMs(this, it) }))
         add(switchSetting("Swipe left on ⌫ deletes a word", Prefs.swipeDeleteEnabled(this),
             { Prefs.setSwipeDeleteEnabled(this, it) }))
         add(sliderSetting("Swipe distance for word delete", 30, 100, Prefs.swipeStepDp(this),

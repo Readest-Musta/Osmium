@@ -23,6 +23,7 @@ object Settings {
         append('|').append(Prefs.hapticStrength(context))
         append('|').append(Prefs.glideCursor(context))
         append('|').append(Prefs.glideSensitivityDp(context))
+        append('|').append(Prefs.glideEdgeRepeatMs(context))
         append('|').append(Prefs.swipeDeleteEnabled(context))
         append('|').append(Prefs.swipeStepDp(context))
         append('|').append(Prefs.doubleSpaceDari(context))

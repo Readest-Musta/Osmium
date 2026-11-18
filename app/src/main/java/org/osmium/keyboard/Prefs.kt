@@ -88,6 +88,15 @@ object Prefs {
         sp(context).edit().putInt(KEY_GLIDE_SENS, dp).apply()
     }
 
+    /**
+     * Interval (ms) between cursor steps while the finger dwells at a screen
+     * edge during a glide. Lower is faster; one step is moved per interval.
+     */
+    fun glideEdgeRepeatMs(context: Context): Int = sp(context).getInt(KEY_GLIDE_EDGE_REPEAT_MS, 40)
+    fun setGlideEdgeRepeatMs(context: Context, ms: Int) {
+        sp(context).edit().putInt(KEY_GLIDE_EDGE_REPEAT_MS, ms).apply()
+    }
+
     /** Swipe gestures on backspace: left deletes a word, down deletes to line start. */
     fun swipeDeleteEnabled(context: Context): Boolean =
         sp(context).getBoolean(KEY_SWIPE_DELETE_ENABLED, true)
@@ -368,6 +377,7 @@ object Prefs {
     private const val KEY_AUTOCAP = "auto_capitalize"
     private const val KEY_GLIDE_CURSOR = "glide_cursor_enabled"
     private const val KEY_GLIDE_SENS = "glide_sensitivity_dp"
+    private const val KEY_GLIDE_EDGE_REPEAT_MS = "glide_edge_repeat_ms"
     private const val KEY_SWIPE_DELETE_ENABLED = "swipe_delete_enabled"
     private const val KEY_SWIPE_STEP_DP = "swipe_step_dp"
     private const val KEY_HEIGHT_SCALE = "key_height_scale"

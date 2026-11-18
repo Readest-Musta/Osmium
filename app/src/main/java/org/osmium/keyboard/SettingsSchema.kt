@@ -30,6 +30,7 @@ object SettingsSchema {
         put("backspace_repeat_ms", Spec(Kind.INT, 20, 150))
         put("glide_cursor_enabled", Spec(Kind.BOOL))
         put("glide_sensitivity_dp", Spec(Kind.INT, 10, 60))
+        put("glide_edge_repeat_ms", Spec(Kind.INT, 20, 150))
         put("swipe_delete_enabled", Spec(Kind.BOOL))
         put("swipe_step_dp", Spec(Kind.INT, 30, 100))
         put("double_space_dari", Spec(Kind.BOOL))
