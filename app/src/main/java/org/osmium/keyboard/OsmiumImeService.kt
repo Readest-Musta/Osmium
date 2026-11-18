@@ -306,7 +306,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             latest = s
             render(s)
         } else {
-            deleteOneCodepoint(ic)
+            val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+            if (et != null && et.selectionStart != et.selectionEnd) {
+                // Delete the selection.
+                ic.commitText("", 1)
+            } else {
+                deleteOneCodepoint(ic)
+            }
         }
     }
 

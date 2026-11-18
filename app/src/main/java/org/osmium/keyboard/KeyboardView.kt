@@ -322,16 +322,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         var hapticSteps = 0
         var navLongPressFired = false
         var navLongPressRunnable: Runnable? = null
-        var glideRepeatRunnable: Runnable? = null
-        var glideDir = 0 // -1 left, +1 right, 0 none
 
         fun cancelNavLongPress() {
             navLongPressRunnable?.let { handler.removeCallbacks(it) }
             navLongPressRunnable = null
-        }
-        fun cancelGlideRepeat() {
-            glideRepeatRunnable?.let { handler.removeCallbacks(it) }
-            glideRepeatRunnable = null
         }
 
         space.setOnTouchListener { _, ev ->
@@ -342,9 +336,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     glideActive = false
                     hapticSteps = 0
                     navLongPressFired = false
-                    glideDir = 0
                     cancelNavLongPress()
-                    cancelGlideRepeat()
                     val r = Runnable {
                         navLongPressRunnable = null
                         navLongPressFired = true
@@ -370,56 +362,33 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         }
                     }
                     if (glideActive) {
-                        val dx = ev.rawX - downX
+                        accumulated += ev.rawX - downX
                         downX = ev.rawX
-                        accumulated += dx
                         val step = dp(Prefs.glideSensitivityDp(context)).coerceAtLeast(dp(8)).toFloat()
-                        if (Math.abs(accumulated) >= step) {
-                            val steps = (accumulated / step).toInt()
+                        val steps = (accumulated / step).toInt()
+                        if (steps != 0) {
                             accumulated -= steps * step
-                            glideDir = if (steps > 0) 1 else -1
                             listener?.onCursorGlide(steps)
                             hapticSteps += Math.abs(steps)
                             if (hapticSteps >= GLIDE_HAPTIC_EVERY) {
                                 hapticSteps = 0
                                 listener?.onFeedback()
                             }
-                            cancelGlideRepeat()
-                            // If still dragging in same direction conceptually, schedule a repeat for continuous movement
-                            val repeatR = object : Runnable {
-                                override fun run() {
-                                    if (!Prefs.glideCursor(context)) return
-                                    listener?.onCursorGlide(glideDir)
-                                    hapticSteps += 1
-                                    if (hapticSteps >= GLIDE_HAPTIC_EVERY) {
-                                        hapticSteps = 0
-                                        listener?.onFeedback()
-                                    }
-                                    glideRepeatRunnable = this
-                                    handler.postDelayed(this, (repeatMs / 2).coerceAtLeast(30L))
-                                }
-                            }
-                            glideRepeatRunnable = repeatR
-                            handler.postDelayed(repeatR, (repeatMs / 2).coerceAtLeast(30L))
                         }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     cancelNavLongPress()
-                    cancelGlideRepeat()
                     if (!navLongPressFired && !glideActive) listener?.onSpace()
                     glideActive = false
                     navLongPressFired = false
-                    glideDir = 0
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     cancelNavLongPress()
-                    cancelGlideRepeat()
                     glideActive = false
                     navLongPressFired = false
-                    glideDir = 0
                     true
                 }
                 else -> false
