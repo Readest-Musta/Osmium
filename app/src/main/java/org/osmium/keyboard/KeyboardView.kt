@@ -17,6 +17,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -46,6 +47,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     interface Listener {
         fun onKey(code: String, shifted: Boolean, altgr: Boolean = false)
+        /** Select suggestion [index] while a riti session is active (digit keys 1-5). */
+        fun onCandidateSelect(index: Int)
         fun onShiftTap()
         fun onSpace()
         fun onBackspace()
@@ -72,11 +75,18 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             field = value
             shift = false
             capsLock = false
+            manualShift = false
+            candidateSelectActive = false
             relabelAll()
         }
 
     private var shift = false
     private var capsLock = false
+    /** True once the user has touched the shift key; auto-cap must not override it. */
+    private var manualShift = false
+    /** Digit keys 1-5 act as candidate selectors while a riti session is live. */
+    private var candidateSelectActive = false
+    private var enterAction: Int = EditorInfo.IME_ACTION_UNSPECIFIED
     private var numberRowVisible = false
     private var pal = Theme.palette(context)
 
@@ -357,12 +367,19 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     /** Plain tap on a character key (no popup involved). */
     private fun charTap(code: String, digitRow: Boolean) {
         if (digitRow) {
-            listener?.onKey(code, shifted = false, altgr = false)
+            // Home-row candidate selection: digits 1-5 pick candidates 0-4
+            // while a session is live, otherwise they type normally.
+            if (candidateSelectActive && code.length == 1 && code[0] in '1'..'5') {
+                listener?.onCandidateSelect(code[0] - '1')
+            } else {
+                listener?.onKey(code, shifted = false, altgr = false)
+            }
             return
         }
         listener?.onKey(code, shift || capsLock, altgr = false)
         if (shift && !capsLock) {
             shift = false
+            manualShift = false
             relabelAll()
         }
     }
@@ -627,11 +644,14 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             setOnClickListener {
                 if (shift && !capsLock) {
                     capsLock = true // double tap -> caps lock
+                    manualShift = true
                 } else if (capsLock) {
                     capsLock = false
                     shift = false
+                    manualShift = false
                 } else {
                     shift = true
+                    manualShift = true
                 }
                 relabelAll()
                 listener?.onShiftTap()
@@ -820,14 +840,42 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         return numberRowVisible
     }
 
-    /** Forces the shift state (e.g. auto-capitalize at a sentence start). */
+    /**
+     * Sets the shift state from auto-capitalize. A manual shift/caps choice is
+     * never overwritten, but labels are always refreshed so the glyph cannot go
+     * stale (e.g. after a previous `setShift(false)`).
+     */
     fun setShift(value: Boolean) {
-        shift = value
-        if (value) relabelAll()
+        if (!manualShift && !capsLock) shift = value
+        relabelAll()
     }
 
     /** True while either shift or caps lock is engaged. */
     fun isShiftActive(): Boolean = shift || capsLock
+
+    /** True when the user explicitly chose shift/caps (auto-cap must back off). */
+    fun isShiftManual(): Boolean = manualShift || capsLock
+
+    /** Enables/disables digit-key candidate selection (1-5 -> candidate 0-4). */
+    fun setCandidateSelectionActive(active: Boolean) {
+        candidateSelectActive = active
+    }
+
+    /** Sets the editor action the Enter key should perform and relabels it. */
+    fun setEnterAction(action: Int) {
+        enterAction = action
+        relabelAll()
+    }
+
+    private fun enterLabel(): String = when (enterAction) {
+        EditorInfo.IME_ACTION_SEARCH -> "🔍"
+        EditorInfo.IME_ACTION_SEND -> "➤"
+        EditorInfo.IME_ACTION_NEXT -> "⇥"
+        EditorInfo.IME_ACTION_DONE -> "✓"
+        EditorInfo.IME_ACTION_GO -> "➤"
+        EditorInfo.IME_ACTION_PREVIOUS -> "⇤"
+        else -> "⏎"
+    }
 
     /**
      * True while a gesture is in progress: a pointer is down, a popup is showing,
@@ -843,7 +891,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             val tag = key.tag as? String ?: continue
             when (tag) {
                 "shift" -> {
-                    key.text = "⇧"
+                    // A distinct glyph for caps lock so the two states are
+                    // never confused (⇧ = shift, ⇪ = caps lock).
+                    key.text = if (capsLock) "⇪" else "⇧"
                     key.setTextColor(if (shifted) pal.accent else pal.keyTextHint)
                 }
                 "mode" -> key.text = when (mode) {
@@ -856,7 +906,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     KeyboardMode.AVRO -> "অভ্র"
                     KeyboardMode.PROBHAT -> "প্রভাত"
                 } else ""
-                "enter", "backspace", "emoji" -> Unit // static labels
+                "enter" -> key.text = enterLabel()
+                "backspace", "emoji" -> Unit // static labels
                 else -> key.text = labelFor(tag, shifted)
             }
         }

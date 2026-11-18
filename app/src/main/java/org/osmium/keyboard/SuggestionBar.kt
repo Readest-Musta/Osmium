@@ -1,7 +1,9 @@
 package org.osmium.keyboard
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -24,6 +26,8 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
 
     private val chips = mutableListOf<TextView>()
     private lateinit var langButton: TextView
+    private lateinit var previewChip: TextView
+    private var selectedIndex = 0
     private val incognitoIndicator: TextView
     private val navButton: TextView
     private val numberButton: TextView
@@ -42,6 +46,17 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             textSize = 13f
             visibility = GONE
         }.also { addView(it, LayoutParams(dp(28), LayoutParams.MATCH_PARENT)) }
+
+        // Romanized buffer preview: the text already composed before the word
+        // being typed. Small, single-line, ellipsized and hidden when empty.
+        previewChip = TextView(context).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            textSize = 12f
+            setTextColor(Theme.palette(context).keyTextHint)
+            visibility = GONE
+        }.also { addView(it, LayoutParams(dp(72), LayoutParams.MATCH_PARENT)) }
 
         langButton = controlButton("", weight = 1f).also {
             it.setOnClickListener { onLanguageToggle?.invoke() }
@@ -100,11 +115,27 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     fun applyTheme() {
         val pal = Theme.palette(context)
         setBackgroundColor(pal.barBg)
-        for (chip in chips) chip.setTextColor(pal.keyText)
+        previewChip.setTextColor(pal.keyTextHint)
         for (i in 0 until childCount) {
             val child = getChildAt(i)
             if (child is TextView && child !== incognitoIndicator && child !in chips) {
                 child.setTextColor(pal.keyTextHint)
+            }
+        }
+        styleChips()
+    }
+
+    /** Highlights the active candidate and restores the others to the theme colour. */
+    private fun styleChips() {
+        val pal = Theme.palette(context)
+        for (i in chips.indices) {
+            val chip = chips[i]
+            if (i == selectedIndex && chip.visibility == VISIBLE) {
+                chip.setBackgroundColor(pal.accent)
+                chip.setTextColor(Theme.dark.keyText)
+            } else {
+                chip.setBackgroundColor(Color.TRANSPARENT)
+                chip.setTextColor(pal.keyText)
             }
         }
     }
@@ -159,6 +190,11 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
                 chip.text = text
             }
         }
+        val auxiliary = suggestion.auxiliary.trim()
+        previewChip.text = auxiliary
+        previewChip.visibility = if (auxiliary.isEmpty()) GONE else VISIBLE
+        selectedIndex = suggestion.selection.coerceAtLeast(0)
+        styleChips()
     }
 
     fun clear() {
@@ -166,6 +202,10 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             chip.text = ""
             chip.visibility = View.INVISIBLE
         }
+        previewChip.text = ""
+        previewChip.visibility = GONE
+        selectedIndex = 0
+        styleChips()
     }
 
     companion object {

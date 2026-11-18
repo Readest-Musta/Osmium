@@ -45,6 +45,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var errorShowing = false
     /** Track orientation to rebuild input view on rotation. */
     private var appliedOrientation = -1
+    /** Input type / editor action of the field currently being edited. */
+    private var currentInputType = 0
+    private var currentEnterAction: Int = EditorInfo.IME_ACTION_UNSPECIFIED
     /** State for double-space → দাঁড়ি (।). */
     private var lastSpaceAt = 0L
     private var lastWasSpace = false
@@ -231,13 +234,24 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val noLearning = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         val isPassword = isPasswordField(info)
         currentFieldIsPassword = isPassword
+        currentInputType = info.inputType
+        currentEnterAction = if ((info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0) {
+            EditorInfo.IME_ACTION_NONE
+        } else {
+            info.imeOptions and EditorInfo.IME_MASK_ACTION
+        }
+        keyboardView?.setEnterAction(currentEnterAction)
         incognito = Prefs.incognitoByDefault(this) || noLearning || isPassword
         engine.setIncognito(incognito)
         suggestionBar?.setIncognito(incognito)
         suggestionBar?.setClipboardEnabled(!incognito)
+        // On a restart of the same field, commit what was being composed before
+        // dropping the session; for a different field, finishing is correct.
+        if (restarting && engine.isSessionActive()) commitCurrentCandidate()
         engine.finishSession()
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
+        keyboardView?.setCandidateSelectionActive(false)
         setPanelVisible(null)
         resetDoubleSpace()
         autoCapitalizeIfNeeded()
@@ -247,6 +261,17 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onWindowShown() {
         super.onWindowShown()
         captureClipboard()
+    }
+
+    /** Hardware DPAD up/down cycles the highlighted candidate during a session. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if ((keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) &&
+            engine.isSessionActive() && latest.candidates.isNotEmpty()
+        ) {
+            cycleCandidate(if (keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     /** Reads the first text item on the clipboard, or null when unavailable. */
@@ -349,6 +374,32 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    override fun onCandidateSelect(index: Int) = guarded {
+        haptic()
+        if (!engine.isSessionActive()) return@guarded
+        val current = latest
+        if (index !in current.candidates.indices || index == current.selection) return@guarded
+        // Keep the riti state, original-index map and auxiliary buffer intact;
+        // only the displayed selection changes. Re-render swaps the composing
+        // text to the newly picked candidate and highlights it in the bar.
+        latest = OsSuggestion(
+            auxiliary = current.auxiliary,
+            candidates = current.candidates,
+            selection = index,
+            isEmpty = current.isEmpty,
+            originalIndices = current.originalIndices,
+        )
+        render(latest)
+    }
+
+    /** Cycle the highlighted candidate (hardware DPAD up/down). */
+    private fun cycleCandidate(delta: Int) = guarded {
+        if (!engine.isSessionActive()) return@guarded
+        val count = latest.candidates.size
+        if (count == 0) return@guarded
+        onCandidateSelect((latest.selection + delta + count) % count)
+    }
+
     override fun onFeedback() = guarded { haptic() }
 
     override fun onShiftTap() = guarded { haptic() }
@@ -370,8 +421,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // Double-space → দাঁড়ি (।): second space soon after the first one
         // replaces that space with the Bangla full stop.
         val now = android.os.SystemClock.uptimeMillis()
-        if (Prefs.doubleSpaceDari(this) && mode != KeyboardMode.PROBHAT &&
-            lastWasSpace && now - lastSpaceAt < 400
+        // Verify the character before the cursor really is our space: a
+        // backspace, a committed candidate or a cursor move may have changed
+        // the field since. দাঁড়ি belongs to Bengali modes only.
+        if (Prefs.doubleSpaceDari(this) && mode != KeyboardMode.ENGLISH &&
+            lastWasSpace && now - lastSpaceAt < 400 &&
+            ic.getTextBeforeCursor(1, 0)?.toString() == " "
         ) {
             ic.deleteSurroundingText(1, 0)
             ic.commitText("।", 1)
@@ -386,6 +441,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     override fun onCursorGlide(delta: Int) = guarded {
+        resetDoubleSpace()
         val ic = currentInputConnection ?: return@guarded
         val pos = cursorPosition(ic) ?: return@guarded
         val target = (pos + delta).coerceAtLeast(0)
@@ -399,17 +455,39 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         return et.startOffset + et.selectionStart
     }
 
-    /** Shift on when the cursor sits at a sentence start (English mode only). */
+    /**
+     * English-only auto-cap at a word boundary that follows a sentence break
+     * (or the start of the field). A manual shift/caps choice always wins.
+     */
     private fun autoCapitalizeIfNeeded() {
         if (!Prefs.autoCapitalize(this) || mode != KeyboardMode.ENGLISH) return
+        if (keyboardView?.isShiftManual() == true || autoCapSuppressedField()) return
         val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(16, 0)?.toString().orEmpty().trimEnd()
-        val atSentenceStart = before.isEmpty() || before.last() in ".!?।\n"
+        // Trim spaces/tabs only: a trailing newline is itself a boundary.
+        val before = ic.getTextBeforeCursor(64, 0)?.toString().orEmpty().trimEnd(' ', '\t')
+        val atSentenceStart = before.isEmpty() || before.last() in ".!?।\n\r"
         keyboardView?.setShift(atSentenceStart)
+    }
+
+    /** Password, URL/web, e-mail and numeric/phone fields never get auto-cap. */
+    private fun autoCapSuppressedField(): Boolean {
+        if (currentFieldIsPassword) return true
+        val cls = currentInputType and InputType.TYPE_MASK_CLASS
+        if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE ||
+            cls == InputType.TYPE_CLASS_DATETIME
+        ) return true
+        val variation = currentInputType and InputType.TYPE_MASK_VARIATION
+        return variation == InputType.TYPE_TEXT_VARIATION_URI ||
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT ||
+            variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+            variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+            variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
     }
 
     override fun onBackspace() = guarded {
         haptic()
+        resetDoubleSpace()
         if (emojiSearchActive()) {
             emojiPanel?.backspaceSearch()
             return@guarded
@@ -433,6 +511,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onDeleteWord() = guarded {
         haptic()
+        resetDoubleSpace()
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) commitCurrentCandidate()
         val before = ic.getTextBeforeCursor(5000, 0)?.toString().orEmpty()
@@ -442,6 +521,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onDeleteToLineStart() = guarded {
         haptic()
+        resetDoubleSpace()
         val ic = currentInputConnection ?: return@guarded
         if (engine.isSessionActive()) commitCurrentCandidate()
         val before = ic.getTextBeforeCursor(5000, 0)?.toString().orEmpty()
@@ -456,6 +536,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Dispatches a single action raised by [NavigationPanel]. */
     private fun onNavAction(action: NavAction) = guarded {
         haptic()
+        resetDoubleSpace()
         val ic = currentInputConnection ?: return@guarded
         // Never navigate or edit in the middle of a riti composition.
         if (engine.isSessionActive()) commitCurrentCandidate()
@@ -601,6 +682,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onEnter() = guarded {
         haptic()
+        resetDoubleSpace()
         if (emojiSearchActive()) {
             // Done searching: end search mode and hand the keyboard back.
             emojiPanel?.clearSearchFocus()
@@ -611,8 +693,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (engine.isSessionActive()) {
             commitCurrentCandidate()
         }
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+        val action = currentEnterAction
+        if (action == EditorInfo.IME_ACTION_NONE ||
+            action == EditorInfo.IME_ACTION_UNSPECIFIED
+        ) {
+            // Plain newline (including IME_FLAG_NO_ENTER_ACTION fields).
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+        } else {
+            ic.performEditorAction(action)
+        }
     }
 
     override fun onModeCycle() = guarded {
@@ -648,6 +738,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun onSuggestion(index: Int) = guarded {
         val candidate = latest.candidates.getOrNull(index) ?: return@guarded
         val ic = currentInputConnection ?: return@guarded
+        resetDoubleSpace()
         // Keep the composing-text swap, commit and state reset atomic so the
         // editor never observes a half-finished candidate commit.
         ic.beginBatchEdit()
@@ -659,6 +750,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             engine.candidateCommitted(index, latest.originalIndices)
             latest = RitiEngine.EMPTY
             suggestionBar?.clear()
+            keyboardView?.setCandidateSelectionActive(false)
         } finally {
             ic.endBatchEdit()
         }
@@ -678,6 +770,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun render(s: OsSuggestion) {
         val ic = currentInputConnection ?: return
+        keyboardView?.setCandidateSelectionActive(!s.isEmpty && s.candidates.isNotEmpty())
         if (s.isEmpty) {
             clearComposition(ic)
             suggestionBar?.clear()
@@ -703,6 +796,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Commits the currently selected candidate and ends the riti session. */
     private fun commitCurrentCandidate() {
         val ic = currentInputConnection ?: return
+        resetDoubleSpace()
         ic.beginBatchEdit()
         try {
             val selected = latest.candidates.getOrNull(latest.selection) ?: ""
@@ -717,6 +811,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             }
             latest = RitiEngine.EMPTY
             suggestionBar?.clear()
+            keyboardView?.setCandidateSelectionActive(false)
         } finally {
             ic.endBatchEdit()
         }
@@ -729,6 +824,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             ic.finishComposingText()
             latest = RitiEngine.EMPTY
             suggestionBar?.clear()
+            keyboardView?.setCandidateSelectionActive(false)
         } finally {
             ic.endBatchEdit()
         }
@@ -774,16 +870,20 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
      * from [cycleMode] and is left alone; the scheme takes effect when the user
      * cycles back into a Bangla mode.
      */
-    private fun reconcileScheme() {
-        if (mode == KeyboardMode.ENGLISH) return
+    private fun reconcileScheme() = guarded {
+        if (mode == KeyboardMode.ENGLISH) return@guarded
         val desired = when (Prefs.banglaScheme(this)) {
             "probhat" -> KeyboardMode.PROBHAT
             else -> KeyboardMode.AVRO
         }
-        if (mode == desired) return
+        if (mode == desired) return@guarded
 
+        // A scheme change must not silently swallow a half-finished word.
+        if (engine.isSessionActive()) commitCurrentCandidate()
         engine.finishSession()
         latest = RitiEngine.EMPTY
+        resetDoubleSpace()
+        keyboardView?.setCandidateSelectionActive(false)
         mode = desired
         layoutFor(mode)?.let { engine.useLayout(it) }
         keyboardView?.apply {
@@ -796,6 +896,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun cycleMode() {
         if (engine.isSessionActive()) commitCurrentCandidate()
+        resetDoubleSpace()
 
         mode = when (mode) {
             KeyboardMode.AVRO -> KeyboardMode.PROBHAT
