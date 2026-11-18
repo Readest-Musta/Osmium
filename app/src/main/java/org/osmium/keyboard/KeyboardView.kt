@@ -322,10 +322,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         var hapticSteps = 0
         var navLongPressFired = false
         var navLongPressRunnable: Runnable? = null
+        var glideRepeatRunnable: Runnable? = null
+        var glideDir = 0 // -1 left, +1 right, 0 none
 
         fun cancelNavLongPress() {
             navLongPressRunnable?.let { handler.removeCallbacks(it) }
             navLongPressRunnable = null
+        }
+        fun cancelGlideRepeat() {
+            glideRepeatRunnable?.let { handler.removeCallbacks(it) }
+            glideRepeatRunnable = null
         }
 
         space.setOnTouchListener { _, ev ->
@@ -336,7 +342,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     glideActive = false
                     hapticSteps = 0
                     navLongPressFired = false
+                    glideDir = 0
                     cancelNavLongPress()
+                    cancelGlideRepeat()
                     val r = Runnable {
                         navLongPressRunnable = null
                         navLongPressFired = true
@@ -362,33 +370,56 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         }
                     }
                     if (glideActive) {
-                        accumulated += ev.rawX - downX
+                        val dx = ev.rawX - downX
                         downX = ev.rawX
+                        accumulated += dx
                         val step = dp(Prefs.glideSensitivityDp(context)).coerceAtLeast(dp(8)).toFloat()
-                        val steps = (accumulated / step).toInt()
-                        if (steps != 0) {
+                        if (Math.abs(accumulated) >= step) {
+                            val steps = (accumulated / step).toInt()
                             accumulated -= steps * step
+                            glideDir = if (steps > 0) 1 else -1
                             listener?.onCursorGlide(steps)
                             hapticSteps += Math.abs(steps)
                             if (hapticSteps >= GLIDE_HAPTIC_EVERY) {
                                 hapticSteps = 0
                                 listener?.onFeedback()
                             }
+                            cancelGlideRepeat()
+                            // If still dragging in same direction conceptually, schedule a repeat for continuous movement
+                            val repeatR = object : Runnable {
+                                override fun run() {
+                                    if (!Prefs.glideCursor(context)) return
+                                    listener?.onCursorGlide(glideDir)
+                                    hapticSteps += 1
+                                    if (hapticSteps >= GLIDE_HAPTIC_EVERY) {
+                                        hapticSteps = 0
+                                        listener?.onFeedback()
+                                    }
+                                    glideRepeatRunnable = this
+                                    handler.postDelayed(this, (repeatMs / 2).coerceAtLeast(30L))
+                                }
+                            }
+                            glideRepeatRunnable = repeatR
+                            handler.postDelayed(repeatR, (repeatMs / 2).coerceAtLeast(30L))
                         }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     cancelNavLongPress()
+                    cancelGlideRepeat()
                     if (!navLongPressFired && !glideActive) listener?.onSpace()
                     glideActive = false
                     navLongPressFired = false
+                    glideDir = 0
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     cancelNavLongPress()
+                    cancelGlideRepeat()
                     glideActive = false
                     navLongPressFired = false
+                    glideDir = 0
                     true
                 }
                 else -> false
@@ -542,7 +573,6 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         val backspace = OsmiumKey(context, OsmiumKeyKind.ACTION).apply {
             tag = "backspace"
             text = "⌫"
-            setOnClickListener { listener?.onBackspace() }
             // Hold to repeat-delete; swipe left for word delete, down for line delete.
             var repeatRunnable: Runnable? = null
             var downX = 0f
@@ -550,6 +580,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             var wordStartX = 0f
             var swipeFired = false
             var lineDeleted = false
+            var repeatStarted = false
             setOnTouchListener { v, ev ->
                 when (ev.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
@@ -558,15 +589,18 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                         wordStartX = ev.rawX
                         swipeFired = false
                         lineDeleted = false
+                        repeatStarted = false
+                        isPressed = true
                         val r: Runnable = object : Runnable {
                             override fun run() {
+                                repeatStarted = true
                                 listener?.onBackspace()
                                 handler.postDelayed(this, repeatMs)
                             }
                         }
                         repeatRunnable = r
                         handler.postDelayed(r, longPressMs)
-                        false // let the view handle a plain tap via OnClickListener
+                        true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (Prefs.swipeDeleteEnabled(context) && !lineDeleted) {
@@ -600,25 +634,28 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                                 SwipeResolver.Action.NONE -> Unit
                             }
                         }
-                        false
+                        true
                     }
                     MotionEvent.ACTION_UP -> {
                         repeatRunnable?.let { handler.removeCallbacks(it) }
                         repeatRunnable = null
-                        v.isPressed = false
-                        val suppressTap = swipeFired
+                        isPressed = false
+                        if (!swipeFired && !repeatStarted) {
+                            listener?.onBackspace()
+                        }
                         swipeFired = false
                         lineDeleted = false
-                        // Consume the event so a swipe is not also treated as a tap.
-                        suppressTap
+                        repeatStarted = false
+                        true
                     }
                     MotionEvent.ACTION_CANCEL -> {
                         repeatRunnable?.let { handler.removeCallbacks(it) }
                         repeatRunnable = null
-                        v.isPressed = false
+                        isPressed = false
                         swipeFired = false
                         lineDeleted = false
-                        false
+                        repeatStarted = false
+                        true
                     }
                     else -> false
                 }
