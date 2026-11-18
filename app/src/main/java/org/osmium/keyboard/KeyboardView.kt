@@ -81,7 +81,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private var pal = Theme.palette(context)
 
     // Appearance settings (read once — the IME rebuilds the view when they change).
-    private val keyHeightDp = (BASE_KEY_DP * Prefs.keyHeightScale(context) / 100f).toInt()
+    private val isLandscape = resources.configuration.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    private val keyHeightDp = ((BASE_KEY_DP * Prefs.keyHeightScale(context) / 100f) *
+        (if (isLandscape) 0.72f else 1f)).toInt().coerceAtLeast(28)
     private val charTextSize = BASE_CHAR_TEXT * Prefs.keyFontScale(context) / 100f
     private val actionTextSize = BASE_ACTION_TEXT * Prefs.keyFontScale(context) / 100f
     private val radiusDp = Prefs.keyRadiusDp(context)

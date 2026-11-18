@@ -38,6 +38,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var latest = RitiEngine.EMPTY
     private var incognito = false
     private var appliedThemeKey: String? = null
+    /** Track orientation to rebuild input view on rotation. */
+    private var appliedOrientation = -1
     /** State for double-space → দাঁড়ি (।). */
     private var lastSpaceAt = 0L
     private var lastWasSpace = false
@@ -82,6 +84,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun buildInputView(): View {
         appliedThemeKey = Theme.key(this)
+        appliedOrientation = resources.configuration.orientation
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -125,6 +128,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             onAction = { action -> onNavAction(action) }
         }
 
+        val isLandscape = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val panelHeightDp = if (isLandscape) 150 else 230
         container.addView(
             suggestionBar,
             LinearLayout.LayoutParams(
@@ -133,15 +139,15 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         )
         container.addView(
             emojiPanel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(panelHeightDp))
         )
         container.addView(
             clipboardPanel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(panelHeightDp))
         )
         container.addView(
             navigationPanel,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(230))
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(panelHeightDp))
         )
         container.addView(
             keyboardView,
@@ -152,8 +158,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        // Rebuild the input view if the theme setting changed since last time.
-        if (Theme.key(this) != appliedThemeKey) {
+        // Rebuild the input view if the theme setting changed or orientation changed.
+        val currentOrientation = resources.configuration.orientation
+        if (Theme.key(this) != appliedThemeKey || currentOrientation != appliedOrientation) {
+            appliedOrientation = currentOrientation
             setInputView(onCreateInputView())
         }
         // Determine incognito state: user preference OR field privacy flags.
