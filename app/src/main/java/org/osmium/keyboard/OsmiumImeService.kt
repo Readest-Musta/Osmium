@@ -39,7 +39,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var incognito = false
     /** True when the current editor is a password field (privacy-sensitive UI). */
     private var currentFieldIsPassword = false
-    private var appliedThemeKey: String? = null
+    /** Fingerprint of the settings baked into the current input view. */
+    private var appliedSettingsKey: String? = null
+    /** True while the error/retry view is installed, so a new field can recover. */
+    private var errorShowing = false
     /** Track orientation to rebuild input view on rotation. */
     private var appliedOrientation = -1
     /** State for double-space → দাঁড়ি (।). */
@@ -75,23 +78,65 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         return try {
             buildInputView()
         } catch (t: Throwable) {
-            // Never leave the user with a blank keyboard — show the error on screen.
+            // Never leave the user with a blank keyboard — show a recoverable error.
+            errorShowing = true
             errorView(t)
         }
     }
 
+    /** Replaces the input view with a short message and a working Retry action. */
+    private fun showError(t: Throwable) {
+        errorShowing = true
+        setInputView(errorView(t))
+    }
+
     private fun errorView(t: Throwable): View {
-        val text = android.widget.TextView(this).apply {
-            text = "Osmium error — please report this:\n\n${t.stackTraceToString().take(2000)}"
+        val detail = t.message?.take(160) ?: t.javaClass.simpleName
+        val message = android.widget.TextView(this).apply {
+            text = "Osmium hit a problem. Your text is safe.\n\n$detail"
             setPadding(32, 32, 32, 32)
             setTextIsSelectable(true)
-            textSize = 12f
+            textSize = 14f
         }
-        return android.widget.ScrollView(this).apply { addView(text) }
+        val retry = android.widget.Button(this).apply {
+            text = "Retry — rebuild keyboard"
+            setOnClickListener { retryFromError() }
+        }
+        return android.widget.ScrollView(this).apply {
+            addView(LinearLayout(this@OsmiumImeService).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(message)
+                addView(retry)
+            })
+        }
+    }
+
+    /**
+     * Escape hatch out of the error view: drop any half-finished composition,
+     * force an engine rebuild (which clears a stale [RitiEngine.initError] on
+     * success) and put a fresh input view back. If the engine is still broken,
+     * show the error again instead of returning to a dead end.
+     */
+    private fun retryFromError() {
+        try {
+            engine.finishSession()
+            latest = RitiEngine.EMPTY
+            suggestionBar?.clear()
+            val layout = layoutFor(mode)
+            if (layout != null) engine.updateEngine(layout)
+            if (layout != null && engine.initError != null) {
+                showError(IllegalStateException(engine.initError))
+                return
+            }
+            setInputView(buildInputView())
+        } catch (t: Throwable) {
+            showError(t)
+        }
     }
 
     private fun buildInputView(): View {
-        appliedThemeKey = Theme.key(this)
+        appliedSettingsKey = Settings.key(this)
+        errorShowing = false
         appliedOrientation = resources.configuration.orientation
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -168,9 +213,17 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        // Rebuild the input view if the theme setting changed or orientation changed.
+        // A scheme chosen in the Settings screen must take effect without a
+        // process restart. Reconcile it before rebuilding so the fresh view is
+        // labelled and laid out for the new mode.
+        reconcileScheme()
+        // One unified signal covers every view-affecting preference (theme,
+        // timings, haptics, glide, scheme, ...). Also recover automatically if
+        // the error/retry view was showing when this field gained focus.
         val currentOrientation = resources.configuration.orientation
-        if (Theme.key(this) != appliedThemeKey || currentOrientation != appliedOrientation) {
+        if (errorShowing || Settings.key(this) != appliedSettingsKey ||
+            currentOrientation != appliedOrientation
+        ) {
             appliedOrientation = currentOrientation
             setInputView(onCreateInputView())
         }
@@ -271,7 +324,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         try {
             body()
         } catch (t: Throwable) {
-            setInputView(errorView(t))
+            showError(t)
         }
     }
 
@@ -615,8 +668,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun sendToRiti(char: String, modifier: Int = 0) {
         val s = engine.suggest(char, modifier = modifier, selection = latest.selection)
         if (s.isEmpty && engine.initError != null) {
-            // Engine is broken — show why instead of silently doing nothing.
-            setInputView(errorView(IllegalStateException("riti engine: ${engine.initError}")))
+            // Engine is broken — show why, with a way back instead of a dead end.
+            showError(IllegalStateException("riti engine: ${engine.initError}"))
             return
         }
         latest = s
@@ -713,6 +766,33 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     // ------------------------------------------------------------------
     // Mode switching & helpers
     // ------------------------------------------------------------------
+
+    /**
+     * Applies a Bangla scheme changed from the Settings activity. The IME reads
+     * the scheme once in [onCreate], so without this a change made in Settings
+     * was ignored until the process died. English mode is an explicit choice
+     * from [cycleMode] and is left alone; the scheme takes effect when the user
+     * cycles back into a Bangla mode.
+     */
+    private fun reconcileScheme() {
+        if (mode == KeyboardMode.ENGLISH) return
+        val desired = when (Prefs.banglaScheme(this)) {
+            "probhat" -> KeyboardMode.PROBHAT
+            else -> KeyboardMode.AVRO
+        }
+        if (mode == desired) return
+
+        engine.finishSession()
+        latest = RitiEngine.EMPTY
+        mode = desired
+        layoutFor(mode)?.let { engine.useLayout(it) }
+        keyboardView?.apply {
+            mode = this@OsmiumImeService.mode
+            userLayoutPath = if (mode == KeyboardMode.PROBHAT) selectedLayoutPath() else null
+        }
+        suggestionBar?.setModeLabel(mode, selectedLayoutName())
+        suggestionBar?.clear()
+    }
 
     private fun cycleMode() {
         if (engine.isSessionActive()) commitCurrentCandidate()

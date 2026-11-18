@@ -50,7 +50,19 @@ class MainActivity : Activity() {
             0xE53935, 0xD81B60, 0xFFB300, 0x00897B,
             0x5E35B1, 0x7E57C2, 0x000000, 0xFFFFFF,
         )
+
+        val COLOR_TARGETS = listOf(
+            "custom_color_keyboard_bg" to "Background",
+            "custom_color_key" to "Keys",
+            "custom_color_text" to "Key text",
+            "custom_color_accent" to "Accent",
+            "custom_color_bar" to "Suggestion bar",
+            "custom_color_panel" to "Panels",
+        )
     }
+
+    /** Custom-colour swatch buttons, keyed by preference key. */
+    private val swatchButtons = mutableMapOf<String, Button>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +84,43 @@ class MainActivity : Activity() {
                 ))
             }
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Settings (including a raw-JSON import or a theme change made while
+        // we were in the background) may have replaced the colours since the
+        // last bind. Refresh the swatches from the live prefs/palette.
+        if (::root.isInitialized) bindColorSwatches()
+    }
+
+    /** Fallback swatch colour for an unset custom colour in the active palette. */
+    private fun fallbackColor(key: String): Int = Theme.palette(this).let {
+        when (key) {
+            "custom_color_keyboard_bg" -> it.keyboardBg
+            "custom_color_key" -> it.keyNormal
+            "custom_color_text" -> it.keyText
+            "custom_color_accent" -> it.accent
+            "custom_color_bar" -> it.barBg
+            else -> it.panelBg
+        }
+    }
+
+    /** Paints and re-wires every swatch button from current preferences. */
+    private fun bindColorSwatches() {
+        for ((key, name) in COLOR_TARGETS) {
+            val button = swatchButtons[key] ?: continue
+            val current = Prefs.customColor(this, key) ?: fallbackColor(key)
+            val lum = (0.299 * Color.red(current) +
+                    0.587 * Color.green(current) +
+                    0.114 * Color.blue(current)) / 255.0
+            button.setTextColor(if (lum > 0.5) Color.BLACK else Color.WHITE)
+            button.background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(current)
+                cornerRadius = 12f * resources.displayMetrics.density
+            }
+            button.setOnClickListener { pickColor(key, name, current) }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -214,52 +263,31 @@ class MainActivity : Activity() {
                     else -> "system"
                 }
                 Theme.setMode(this@MainActivity, m)
+                // Rebuild the activity so its own widgets (swatch fallbacks in
+                // particular) pick up the new palette immediately.
+                recreate()
             }
         }
         add(themeGroup)
         add(note("Custom theme uses the colours below; unset colours fall back to the system palette."))
 
-        val colorTargets = listOf(
-            "custom_color_keyboard_bg" to "Background",
-            "custom_color_key" to "Keys",
-            "custom_color_text" to "Key text",
-            "custom_color_accent" to "Accent",
-            "custom_color_bar" to "Suggestion bar",
-            "custom_color_panel" to "Panels",
-        )
         val colorRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(pad, 0, pad, 0)
         }
-        for ((key, name) in colorTargets) {
-            val current = Prefs.customColor(this, key)
-                ?: Theme.palette(this).let {
-                    when (key) {
-                        "custom_color_keyboard_bg" -> it.keyboardBg
-                        "custom_color_key" -> it.keyNormal
-                        "custom_color_text" -> it.keyText
-                        "custom_color_accent" -> it.accent
-                        "custom_color_bar" -> it.barBg
-                        else -> it.panelBg
-                    }
-                }
-            colorRow.addView(Button(this).apply {
+        for ((key, name) in COLOR_TARGETS) {
+            val button = Button(this).apply {
                 text = name
                 textSize = 11f
-                val lum = (0.299 * Color.red(current) +
-                        0.587 * Color.green(current) +
-                        0.114 * Color.blue(current)) / 255.0
-                setTextColor(if (lum > 0.5) Color.BLACK else Color.WHITE)
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(current)
-                    cornerRadius = 12f * resources.displayMetrics.density
-                }
-                setOnClickListener { pickColor(key, name, current) }
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(2, 2, 2, 2)
-            })
+            }
+            swatchButtons[key] = button
+            colorRow.addView(button,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(2, 2, 2, 2)
+                })
         }
         add(colorRow)
+        bindColorSwatches()
 
         val clearColors = Button(this).apply {
             text = "Reset custom colours"

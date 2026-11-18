@@ -8,7 +8,7 @@ import java.io.File
  * User preferences for Osmium. Stored locally only — no sync, no analytics.
  *
  * All UI-affecting values are read live where possible; the IME rebuilds its
- * input view when [UiSettings.key] changes (see Theme.kt).
+ * input view when [Settings.key] changes (see Settings.kt).
  */
 object Prefs {
     private const val FILE = "osmium_prefs"
@@ -320,21 +320,26 @@ object Prefs {
         return root.toString(2)
     }
 
-    /** Applies a settings JSON. Returns the number of keys applied. */
+    /**
+     * Applies a settings JSON. Returns the number of keys applied.
+     *
+     * Every entry goes through [SettingsSchema.normalize] first: unknown keys
+     * and wrong-typed values are skipped, and numbers are clamped to the same
+     * ranges the settings sliders use. This keeps a hand-edited raw JSON file
+     * from writing (for example) a String into an Int preference and bricking
+     * the keyboard with a ClassCastException on the next read.
+     */
     fun importJson(context: Context, json: String): Int {
         val root = org.json.JSONObject(json)
         val editor = sp(context).edit()
         var count = 0
         for (key in root.keys()) {
-            when (val v = root.get(key)) {
-                is Boolean -> editor.putBoolean(key, v)
-                is Int -> editor.putInt(key, v)
-                is Long -> editor.putInt(key, v.toInt())
-                is Double -> {
-                    // JSON has no float type; ints were written as doubles.
-                    if (v == Math.floor(v)) editor.putInt(key, v.toInt())
-                }
-                is String -> editor.putString(key, v)
+            val normalized = SettingsSchema.normalize(key, root.get(key)) ?: continue
+            val (k, v) = normalized
+            when (v) {
+                is Boolean -> editor.putBoolean(k, v)
+                is Int -> editor.putInt(k, v)
+                is String -> editor.putString(k, v)
                 else -> continue
             }
             count++
