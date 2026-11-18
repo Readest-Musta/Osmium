@@ -11,10 +11,13 @@ dictionary OsSuggestion {
     string auxiliary;
     // Suggestion candidates for the current word.
     sequence<string> candidates;
-    // Index of the currently selected candidate.
+    // Index of the currently selected candidate (display index, post-reorder).
     i32 selection;
     // True when there is nothing to compose.
     boolean is_empty;
+    // display index -> riti's original candidate index. Passed back to the
+    // engine when a candidate is committed so riti learns the right word.
+    sequence<i32> original_indices;
 };
 
 interface OsRiti {

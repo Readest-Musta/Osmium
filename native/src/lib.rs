@@ -16,10 +16,13 @@ pub struct OsSuggestion {
     pub auxiliary: String,
     /// Suggestion candidates for the current word.
     pub candidates: Vec<String>,
-    /// Index of the currently selected candidate.
+    /// Index of the currently selected candidate (display index, post-reorder).
     pub selection: i32,
     /// True when there is nothing to compose.
     pub is_empty: bool,
+    /// display index -> riti's original candidate index. riti must be told the
+    /// original index when a candidate is committed, never the display index.
+    pub original_indices: Vec<i32>,
 }
 
 impl From<Suggestion> for OsSuggestion {
@@ -36,10 +39,14 @@ impl From<Suggestion> for OsSuggestion {
                 // keyboard that commits the top suggestion on space).
                 // Reorder: Bengali-script candidates first, everything else
                 // after — stable, so riti's own ordering is kept per group.
-                let mut order: Vec<usize> = (0..suggestions.len()).collect();
-                order.sort_by_key(|&i| if starts_with_bengali(&suggestions[i]) { 0 } else { 1 });
+                // `order[d] = o` means display position d holds riti's original
+                // candidate o. That same permutation is exposed to the IME as
+                // `original_indices` so a commit can be translated back.
+                let order = bengali_first_order(&suggestions);
                 let candidates: Vec<String> =
                     order.iter().map(|&i| suggestions[i].clone()).collect();
+                let original_indices: Vec<i32> =
+                    order.iter().map(|&i| i as i32).collect();
                 // Remap riti's selection index into the reordered list.
                 let selection = order
                     .iter()
@@ -50,6 +57,7 @@ impl From<Suggestion> for OsSuggestion {
                     candidates,
                     selection,
                     is_empty: false,
+                    original_indices,
                 }
             }
             Suggestion::Single { suggestion, .. } => {
@@ -59,6 +67,7 @@ impl From<Suggestion> for OsSuggestion {
                         candidates: Vec::new(),
                         selection: 0,
                         is_empty: true,
+                        original_indices: Vec::new(),
                     }
                 } else {
                     OsSuggestion {
@@ -66,11 +75,21 @@ impl From<Suggestion> for OsSuggestion {
                         candidates: vec![suggestion],
                         selection: 0,
                         is_empty: false,
+                        original_indices: vec![0],
                     }
                 }
             }
         }
     }
+}
+
+/// Stable Bengali-first permutation of riti's suggestions.
+/// `order[d] = o`: display position `d` holds riti's original candidate `o`.
+fn bengali_first_order(suggestions: &[String]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..suggestions.len()).collect();
+    // slice::sort_by_key is stable, so riti's relative order is kept per group.
+    order.sort_by_key(|&i| if starts_with_bengali(&suggestions[i]) { 0 } else { 1 });
+    order
 }
 
 /// True if the first visible character (skipping joiners like ZWNJ/ZWJ)
@@ -212,6 +231,44 @@ pub fn keycode_for_char(ch: String) -> i32 {
 
 pub fn modifier_shift() -> i32 {
     riti::context::MODIFIER_SHIFT as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bengali_first_order_is_stable_and_carries_original_indices() {
+        let suggestions = vec![
+            "ami".to_string(),    // 0: other
+            "আমি".to_string(),    // 1: Bengali
+            "bangla".to_string(), // 2: other
+            "বাংলা".to_string(), // 3: Bengali
+            "ami".to_string(),    // 4: other (stability check within group)
+        ];
+        let order = bengali_first_order(&suggestions);
+        assert_eq!(order, vec![1, 3, 0, 2, 4]);
+
+        // The same permutation is the display->original index mapping.
+        let original_indices: Vec<i32> = order.iter().map(|&i| i as i32).collect();
+        assert_eq!(original_indices, vec![1, 3, 0, 2, 4]);
+
+        let candidates: Vec<&str> = order.iter().map(|&i| suggestions[i].as_str()).collect();
+        assert_eq!(candidates, vec!["আমি", "বাংলা", "ami", "bangla", "ami"]);
+    }
+
+    #[test]
+    fn selection_remaps_to_a_display_index_whose_original_is_riti_selection() {
+        let suggestions = vec!["ami".to_string(), "আমি".to_string(), "bangla".to_string()];
+        let order = bengali_first_order(&suggestions); // [1, 0, 2]
+        let riti_selection = 0usize;
+        let display = order
+            .iter()
+            .position(|&i| i == riti_selection)
+            .expect("riti selection must be present");
+        assert_eq!(display, 1);
+        assert_eq!(order[display], riti_selection);
+    }
 }
 
 // Include the UniFFI scaffolding generated from src/osmium.udl by build.rs.

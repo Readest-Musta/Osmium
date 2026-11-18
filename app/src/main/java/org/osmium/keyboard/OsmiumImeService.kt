@@ -118,7 +118,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         emojiPanel = EmojiPanel(this).apply {
             visibility = View.GONE
             onEmojiPicked = { emoji ->
-                currentInputConnection?.commitText(emoji, 1)
+                insertTextSafely(emoji)
                 haptic()
             }
         }
@@ -126,7 +126,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         clipboardPanel = ClipboardPanel(this).apply {
             visibility = View.GONE
             onPaste = { text ->
-                currentInputConnection?.commitText(text, 1)
+                insertTextSafely(text)
                 haptic()
             }
         }
@@ -421,7 +421,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 hideNavigationPanel() // text changed
             }
             NavAction.PASTE -> {
-                ic.performContextMenuAction(android.R.id.paste)
+                // Funnel pasted text through the same composition-safe path as
+                // the emoji/clipboard panels. Any active riti session was
+                // already committed by the guard above, so commitText here
+                // cannot overwrite a live composing span.
+                val text = currentClipboardText()
+                if (text != null) {
+                    insertTextSafely(text)
+                } else {
+                    ic.performContextMenuAction(android.R.id.paste)
+                }
                 hideNavigationPanel() // text changed
             }
             NavAction.SELECT_ALL -> ic.performContextMenuAction(android.R.id.selectAll)
@@ -586,12 +595,20 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun onSuggestion(index: Int) = guarded {
         val candidate = latest.candidates.getOrNull(index) ?: return@guarded
         val ic = currentInputConnection ?: return@guarded
-        // Replace the composing region with the picked candidate in one step.
-        ic.setComposingText(candidate, 1)
-        ic.finishComposingText()
-        engine.candidateCommitted(index)
-        latest = RitiEngine.EMPTY
-        suggestionBar?.clear()
+        // Keep the composing-text swap, commit and state reset atomic so the
+        // editor never observes a half-finished candidate commit.
+        ic.beginBatchEdit()
+        try {
+            // Replace the composing region with the picked candidate in one step.
+            ic.setComposingText(candidate, 1)
+            ic.finishComposingText()
+            // `index` is a display index; tell riti its original index instead.
+            engine.candidateCommitted(index, latest.originalIndices)
+            latest = RitiEngine.EMPTY
+            suggestionBar?.clear()
+        } finally {
+            ic.endBatchEdit()
+        }
         haptic()
     }
 
@@ -633,24 +650,57 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Commits the currently selected candidate and ends the riti session. */
     private fun commitCurrentCandidate() {
         val ic = currentInputConnection ?: return
-        val selected = latest.candidates.getOrNull(latest.selection) ?: ""
-        if (selected.isNotEmpty()) {
-            // Replace the composing region with the final text in one step,
-            // then commit it (finishComposingText on stale text would
-            // duplicate it into the field).
-            ic.setComposingText(selected, 1)
-            ic.finishComposingText()
-            engine.candidateCommitted(latest.selection)
+        ic.beginBatchEdit()
+        try {
+            val selected = latest.candidates.getOrNull(latest.selection) ?: ""
+            if (selected.isNotEmpty()) {
+                // Replace the composing region with the final text in one step,
+                // then commit it (finishComposingText on stale text would
+                // duplicate it into the field).
+                ic.setComposingText(selected, 1)
+                ic.finishComposingText()
+                // `latest.selection` is a display index; translate before riti.
+                engine.candidateCommitted(latest.selection, latest.originalIndices)
+            }
+            latest = RitiEngine.EMPTY
+            suggestionBar?.clear()
+        } finally {
+            ic.endBatchEdit()
         }
-        latest = RitiEngine.EMPTY
-        suggestionBar?.clear()
     }
 
     private fun clearComposition(ic: InputConnection) {
-        ic.setComposingText("", 1)
-        ic.finishComposingText()
-        latest = RitiEngine.EMPTY
-        suggestionBar?.clear()
+        ic.beginBatchEdit()
+        try {
+            ic.setComposingText("", 1)
+            ic.finishComposingText()
+            latest = RitiEngine.EMPTY
+            suggestionBar?.clear()
+        } finally {
+            ic.endBatchEdit()
+        }
+    }
+
+    /**
+     * Commits arbitrary text (emoji / clipboard paste) without leaving a stale
+     * riti composition behind. The active candidate is committed first, then
+     * the composing span is finished and engine/bar state is reset, so the
+     * subsequent [commitText] cannot overwrite a live composing region or
+     * desync riti's input session.
+     */
+    private fun insertTextSafely(text: String) {
+        val ic = currentInputConnection ?: return
+        ic.beginBatchEdit()
+        try {
+            if (engine.isSessionActive()) commitCurrentCandidate()
+            // No composing span may remain when foreign text is inserted.
+            ic.finishComposingText()
+            latest = RitiEngine.EMPTY
+            suggestionBar?.clear()
+            if (text.isNotEmpty()) ic.commitText(text, 1)
+        } finally {
+            ic.endBatchEdit()
+        }
     }
 
     /** Codepoint-aware delete (handles surrogate pairs / emoji). */

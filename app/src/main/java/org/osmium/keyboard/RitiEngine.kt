@@ -7,6 +7,14 @@ import uniffi.osmium.OsSuggestion
 import uniffi.osmium.keycodeForChar
 
 /**
+ * Maps a candidate's *display* index (after the Bengali-first reorder) back to
+ * riti's original index. Missing/out-of-range entries fall back to the display
+ * index, which is correct for lists that were not reordered (e.g. EMPTY).
+ */
+internal fun mapToOriginalIndex(displayIndex: Int, originalIndices: List<Int>): Int =
+    originalIndices.getOrNull(displayIndex) ?: displayIndex
+
+/**
  * Kotlin bridge to the riti engine through the osmium-native (UniFFI) bindings.
  *
  * Data files bundled as assets are copied into internal storage on first use —
@@ -49,7 +57,11 @@ class RitiEngine(private val context: Context) {
         }
 
         val EMPTY = OsSuggestion(
-            auxiliary = "", candidates = emptyList(), selection = 0, isEmpty = true
+            auxiliary = "",
+            candidates = emptyList(),
+            selection = 0,
+            isEmpty = true,
+            originalIndices = emptyList(),
         )
     }
 
@@ -158,10 +170,16 @@ class RitiEngine(private val context: Context) {
         }
     }
 
-    /** A suggestion candidate was committed (ends the session). */
-    fun candidateCommitted(index: Int) {
+    /**
+     * A suggestion candidate was committed (ends the session).
+     *
+     * [displayIndex] is the index the user sees/taps in the (Bengali-first)
+     * suggestion bar; [indices] translates it back to riti's original index.
+     */
+    fun candidateCommitted(displayIndex: Int, indices: List<Int> = emptyList()) {
+        val originalIndex = mapToOriginalIndex(displayIndex, indices)
         try {
-            riti?.candidateCommitted(index)
+            riti?.candidateCommitted(originalIndex)
         } catch (_: Throwable) {
         }
     }

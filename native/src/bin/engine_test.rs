@@ -27,8 +27,8 @@ fn main() {
         let s = riti.suggest_for_key(code, 0, 0);
         let preview: Vec<String> = s.candidates.iter().take(4).cloned().collect();
         println!(
-            "  '{c}' -> aux={:?} sel={} cands={:?}",
-            s.auxiliary, s.selection, preview
+            "  '{c}' -> aux={:?} sel={} cands={:?} orig={:?}",
+            s.auxiliary, s.selection, preview, s.original_indices
         );
         assert!(
             s.candidates
@@ -38,6 +38,27 @@ fn main() {
             "first candidate must be Bengali-script, got {:?}",
             s.candidates.first()
         );
+        // original_indices maps each display slot to a riti candidate and must
+        // be a full permutation, otherwise a committed candidate maps to the
+        // wrong word.
+        assert_eq!(
+            s.original_indices.len(),
+            s.candidates.len(),
+            "original_indices must cover every displayed candidate"
+        );
+        let mut sorted = s.original_indices.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            (0..s.original_indices.len() as i32).collect::<Vec<_>>(),
+            "original_indices must be a permutation of 0..len"
+        );
+        if let Some(&original) = s.original_indices.get(s.selection as usize) {
+            assert!(
+                (original as usize) < s.original_indices.len(),
+                "selected candidate's original index must be in range"
+            );
+        }
     }
 
     // ---------------- Probhat layout + AltGr layer ----------------
