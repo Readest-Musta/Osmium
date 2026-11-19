@@ -1,8 +1,5 @@
 package org.osmium.keyboard
 
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
-import android.animation.StateListAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
@@ -1342,7 +1339,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                 stateDrawable(normal, pressed),
                 round(normal),
             )
-            stateListAnimator = pressAnimator()
+            // No StateListAnimator: allocating three ObjectAnimators per press
+            // (and per release) was the main source of fast-typing jank. The
+            // ripple + pressed colour below give instant feedback for free.
+            stateListAnimator = null
             setTextColor(if (kind == OsmiumKeyKind.ACTION) pal.keyTextHint else ColorMath.onColor(normal))
         }
 
@@ -1358,21 +1358,6 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             return list
         }
 
-        /** Small scale/elevation "key pop" on press, with a matching release. */
-        private fun pressAnimator(): StateListAnimator = StateListAnimator().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), keyAnimation(0.94f, dp(2).toFloat()))
-            addState(StateSet.NOTHING, keyAnimation(1f, 0f))
-        }
-
-        private fun keyAnimation(scale: Float, elevation: Float): AnimatorSet =
-            AnimatorSet().apply {
-                duration = 90
-                playTogether(
-                    ObjectAnimator.ofFloat(this@OsmiumKey, View.SCALE_X, scale),
-                    ObjectAnimator.ofFloat(this@OsmiumKey, View.SCALE_Y, scale),
-                    ObjectAnimator.ofFloat(this@OsmiumKey, View.TRANSLATION_Z, elevation),
-                )
-            }
     }
 }
 
