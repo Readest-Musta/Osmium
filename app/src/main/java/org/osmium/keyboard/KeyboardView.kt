@@ -87,6 +87,12 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         fun onSymbol(code: String)
         /** Open the full Symbols picker from a popup's "more" chip. */
         fun onSymbolsRequested()
+        /** A word glide is in progress; points are keyboard-local pixels. */
+        fun onGlideSample(points: List<GlidePoint>)
+        /** The glide ended; decode and commit the winning candidate. */
+        fun onGlideEnd()
+        /** The glide was cancelled; drop any preview. */
+        fun onGlideCancel()
     }
 
     var listener: Listener? = null
@@ -157,8 +163,100 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         edgeRepeatRunnable?.let { handler.removeCallbacks(it) }
         edgeRepeatRunnable = null
         spaceGlideActive = false
+        wordGlideActive = false
+        wordGlidePointer = INVALID_POINTER_ID
+        wordGlidePoints.clear()
         hideGlideTrack()
         hideSwipeGhost()
+    }
+
+    // ------------------------------------------------------------------
+    // Word glide: parent-level observation of a touch path across letter keys.
+    // ------------------------------------------------------------------
+    private var wordGlidePointer = INVALID_POINTER_ID
+    private var wordGlideDownX = 0f
+    private var wordGlideDownY = 0f
+    private var wordGlideActive = false
+    private var wordGlideChild: View? = null
+    private val wordGlidePoints = mutableListOf<GlidePoint>()
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        observeWordGlide(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun observeWordGlide(ev: MotionEvent) {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (ev.getPointerId(0) != INVALID_POINTER_ID &&
+                    mode != KeyboardMode.ENGLISH
+                ) {
+                    val child = charKeyAt(ev.rawX, ev.rawY)
+                    if (child != null) {
+                        wordGlidePointer = ev.getPointerId(0)
+                        wordGlideChild = child
+                        wordGlideDownX = ev.rawX
+                        wordGlideDownY = ev.rawY
+                        wordGlideActive = false
+                        wordGlidePoints.clear()
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (wordGlidePointer == INVALID_POINTER_ID) return
+                val index = ev.findPointerIndex(wordGlidePointer)
+                if (index < 0) return
+                if (!wordGlideActive) {
+                    val dx = ev.getRawX(index) - wordGlideDownX
+                    val dy = ev.getRawY(index) - wordGlideDownY
+                    if (kotlin.math.hypot(dx, dy) <= dp(WORD_GLIDE_ACTIVATION_DP)) return
+                    wordGlideActive = true
+                    // Prevent the originating key from also committing a tap.
+                    val cancel = MotionEvent.obtain(
+                        ev.downTime, ev.eventTime, MotionEvent.ACTION_CANCEL,
+                        ev.rawX, ev.rawY, ev.metaState,
+                    )
+                    wordGlideChild?.dispatchTouchEvent(cancel)
+                    cancel.recycle()
+                }
+                val loc = IntArray(2).also { getLocationOnScreen(it) }
+                wordGlidePoints += GlidePoint(
+                    ev.getRawX(index) - loc[0], ev.getRawY(index) - loc[1]
+                )
+                if (wordGlidePoints.size >= 4) {
+                    listener?.onGlideSample(GlidePath.resample(wordGlidePoints, 8))
+                    wordGlidePoints.clear()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (wordGlidePointer == INVALID_POINTER_ID) return
+                if (wordGlideActive) {
+                    if (ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        listener?.onGlideCancel()
+                    } else {
+                        listener?.onGlideEnd()
+                    }
+                }
+                wordGlidePointer = INVALID_POINTER_ID
+                wordGlideActive = false
+                wordGlideChild = null
+                wordGlidePoints.clear()
+            }
+        }
+    }
+
+    /** Finds a letter/digit key beneath screen-absolute coordinates. */
+    private fun charKeyAt(rawX: Float, rawY: Float): View? {
+        val loc = IntArray(2)
+        for (key in keys) {
+            val code = key.tag as? String ?: continue
+            if (code.length != 1) continue
+            key.getLocationOnScreen(loc)
+            if (rawX in loc[0].toFloat()..(loc[0] + key.width).toFloat() &&
+                rawY in loc[1].toFloat()..(loc[1] + key.height).toFloat()
+            ) return key
+        }
+        return null
     }
 
     override fun onDetachedFromWindow() {
@@ -634,6 +732,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         const val POPUP_HIT_SLOP_DP = 4
         /** Maximum chips per popup row; longer sets wrap into a grid. */
         const val POPUP_COLUMNS = 8
+        /** Travel before a letter-key gesture becomes a word glide. */
+        const val WORD_GLIDE_ACTIVATION_DP = 18
 
         /** Vertical travel (dp) off the spacebar that cancels its nav long-press. */
         const val NAV_MOVE_CANCEL_DY_DP = 24
@@ -1227,7 +1327,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
      * a glide is active, or a timed long-press/repeat callback is pending.
      */
     fun isGestureActive(): Boolean =
-        activeTouchCount > 0 || popup != null || spaceGlideActive ||
+        activeTouchCount > 0 || popup != null || spaceGlideActive || wordGlideActive ||
             pendingLongPress != null || navLongPressRunnable != null ||
             backspaceRepeatRunnable != null || edgeRepeatRunnable != null
 

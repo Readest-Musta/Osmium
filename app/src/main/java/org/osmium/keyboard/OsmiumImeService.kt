@@ -650,6 +650,21 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         insertTextSafely(code)
     }
 
+    /** Glide decoding lands in Phase B; for now remember the path for diagnostics. */
+    private var lastGlidePointCount = 0
+
+    override fun onGlideSample(points: List<GlidePoint>) = guarded {
+        lastGlidePointCount = points.size
+    }
+
+    override fun onGlideEnd() = guarded {
+        lastGlidePointCount = 0
+    }
+
+    override fun onGlideCancel() = guarded {
+        lastGlidePointCount = 0
+    }
+
     /** The popup's "more" chip: jump straight to the full Symbols picker. */
     override fun onSymbolsRequested() = guarded {
         haptic()
