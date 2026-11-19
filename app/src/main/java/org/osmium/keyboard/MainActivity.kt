@@ -34,6 +34,7 @@ import java.io.File
 class MainActivity : Activity() {
 
     private lateinit var root: LinearLayout
+    private var preview: KeyboardPreview? = null
     private val pad by lazy { (16 * resources.displayMetrics.density).toInt() }
 
     private companion object {
@@ -72,6 +73,15 @@ class MainActivity : Activity() {
             setPadding(0, pad, 0, pad)
         }
         buildSetupSection()
+        add(TextView(this).apply {
+            text = "Live preview"
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF4F8CFF.toInt())
+            setPadding(pad, pad, pad, pad / 4)
+        })
+        preview = KeyboardPreview(this).also { add(it) }
+        add(note("Colours and sizing update here instantly; the keyboard picks them up the next time it opens."))
         buildAppearanceSection()
         buildBehaviourSection()
         buildLayoutsSection()
@@ -91,7 +101,10 @@ class MainActivity : Activity() {
         // Settings (including a raw-JSON import or a theme change made while
         // we were in the background) may have replaced the colours since the
         // last bind. Refresh the swatches from the live prefs/palette.
-        if (::root.isInitialized) bindColorSwatches()
+        if (::root.isInitialized) {
+            bindColorSwatches()
+            preview?.refresh()
+        }
     }
 
     /** Fallback swatch colour for an unset custom colour in the active palette. */
@@ -298,11 +311,11 @@ class MainActivity : Activity() {
         add(clearColors)
 
         add(sliderSetting("Keyboard height", 80, 140, Prefs.keyHeightScale(this),
-            { "$it%" }, { Prefs.setKeyHeightScale(this, it) }))
+            { "$it%" }, { Prefs.setKeyHeightScale(this, it); preview?.refresh() }))
         add(sliderSetting("Key corner radius", 0, 18, Prefs.keyRadiusDp(this),
-            { "${it}dp" }, { Prefs.setKeyRadiusDp(this, it) }))
+            { "${it}dp" }, { Prefs.setKeyRadiusDp(this, it); preview?.refresh() }))
         add(sliderSetting("Key text size", 80, 150, Prefs.keyFontScale(this),
-            { "$it%" }, { Prefs.setKeyFontScale(this, it) }))
+            { "$it%" }, { Prefs.setKeyFontScale(this, it); preview?.refresh() }))
         add(switchSetting("Number row always visible", Prefs.numberRowAlways(this),
             { Prefs.setNumberRowAlways(this, it) }))
         add(switchSetting("Show mode name on spacebar", Prefs.spacebarLabel(this),
