@@ -80,10 +80,20 @@ class SettingsSchemaTest {
             "clipboard_items" to "[]" as Any,
             "toolbar_settings" to true as Any,
             "selected_layout" to "my-layout.json" as Any,
+            "previous_layout" to "probhat" as Any,
         )
         for ((key, value) in valid) {
             assertEquals(key to value, SettingsSchema.normalize(key, value))
         }
+    }
+
+    @Test
+    fun previousLayoutSurvivesImportRoundTrip() {
+        // T6 rollback marker: dropping this pref on import would break the
+        // ability to roll back a layout change after a settings restore.
+        assertEquals("previous_layout" to "probhat",
+            SettingsSchema.normalize("previous_layout", "probhat"))
+        assertNull(SettingsSchema.normalize("previous_layout", 7))
     }
 
     @Test

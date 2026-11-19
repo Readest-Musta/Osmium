@@ -351,12 +351,15 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
         keyboardView?.setEnterAction(currentEnterAction)
         incognito = Prefs.incognitoByDefault(this) || noLearning || isPassword
+        // On a restart of the same field, commit what was being composed before
+        // dropping the session; for a different field, finishing is correct.
+        // This must run BEFORE setIncognito: a privacy-state change
+        // (normal -> password) rebuilds the engine, which drops the session
+        // and would otherwise leave the editor's composing span unterminated.
+        if (restarting && engine.isSessionActive()) commitCurrentCandidate()
         engine.setIncognito(incognito)
         suggestionBar?.setIncognito(incognito)
         suggestionBar?.setClipboardEnabled(!incognito)
-        // On a restart of the same field, commit what was being composed before
-        // dropping the session; for a different field, finishing is correct.
-        if (restarting && engine.isSessionActive()) commitCurrentCandidate()
         engine.finishSession()
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
@@ -968,7 +971,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun sendToRiti(char: String, modifier: Int = 0) {
-        val s = engine.suggest(char, modifier = modifier, selection = latest.selection)
+        // `latest.selection` is a DISPLAY index (post Bengali-first reorder /
+        // candidate pick). Riti reads this value as its own ORIGINAL candidate
+        // index and echoes it back on punctuation keys, so it must be inverted
+        // here just as it is on commit — otherwise typing `.`/`?`/`!` mid-word
+        // jumps to the wrong candidate and commits the wrong word on space.
+        val originalSelection = mapToOriginalIndex(latest.selection, latest.originalIndices)
+        val s = engine.suggest(char, modifier = modifier, selection = originalSelection)
         if (s.isEmpty && engine.initError != null) {
             // Engine is broken — show why, with a way back instead of a dead end.
             showError(IllegalStateException("riti engine: ${engine.initError}"))

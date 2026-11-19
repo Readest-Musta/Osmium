@@ -55,6 +55,9 @@ object SettingsSchema {
         // Strings (values are parsed defensively by their readers)
         put("bangla_scheme", Spec(Kind.TEXT))
         put("selected_layout", Spec(Kind.TEXT))
+        // T6 rollback marker: without a spec the layout-rollback state was the
+        // only pref silently dropped on every settings import/export.
+        put("previous_layout", Spec(Kind.TEXT))
         put("emoji_recents", Spec(Kind.TEXT))
         put("symbol_recents", Spec(Kind.TEXT))
         put("clipboard_items", Spec(Kind.TEXT))

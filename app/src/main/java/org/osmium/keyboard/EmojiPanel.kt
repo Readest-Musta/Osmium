@@ -39,6 +39,17 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
     private var selected = EmojiCategory.SMILEYS
     private var symbolGroupIndex = 0
 
+    /** One rounded cell background per palette colour, shared by all grid cells. */
+    private val cellBackgrounds = mutableMapOf<Int, GradientDrawable>()
+
+    private fun cellBackground(panelBg: Int): GradientDrawable =
+        cellBackgrounds.getOrPut(panelBg) {
+            GradientDrawable().apply {
+                setColor(panelBg)
+                cornerRadius = dp(6).toFloat()
+            }
+        }
+
     /** Leading "recent symbols" sub-tab, then the fixed symbol groups. */
     private val symbolTabs: List<EmojiData.SymbolGroup> =
         listOf(EmojiData.SymbolGroup("recent", "🕘", emptyList())) + EmojiData.SYMBOL_GROUPS
@@ -235,10 +246,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
             val pal = Theme.palette(context)
             view.text = getItem(position)
             view.setTextColor(pal.keyText)
-            view.background = GradientDrawable().apply {
-                setColor(pal.panelBg)
-                cornerRadius = dp(6).toFloat()
-            }
+            view.background = cellBackground(pal.panelBg)
             return view
         }
     }
