@@ -687,7 +687,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     text = entry.label
                     textSize = 19f
                     setTextColor(pal.keyText)
-                    contentDescription = entry.code
+                    contentDescription = if (entry.code == SymbolPalette.OPEN_SYMBOLS_CODE) {
+                        "More symbols"
+                    } else {
+                        entry.label
+                    }
                 }
                 popupChips += chip to entry
                 rowView.addView(chip, LinearLayout.LayoutParams(chipWidth, chipHeight))
@@ -752,8 +756,16 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private fun commitHighlightedChip() {
         if (popupChips.isEmpty()) return
         // A clean long-press with no slide previously committed nothing (the base
-        // key was swallowed). Fall back to the anchor/center popup chip instead.
-        val index = if (highlightedChip in popupChips.indices) highlightedChip else popupChips.size / 2
+        // key was swallowed). For compact popups the centre chip is the natural
+        // default; for a symbol grid use the first chip so the result is a
+        // predictable, useful character rather than an arbitrary quote.
+        val index = if (highlightedChip in popupChips.indices) {
+            highlightedChip
+        } else if (popupChips.size > POPUP_COLUMNS) {
+            0
+        } else {
+            popupChips.size / 2
+        }
         val entry = popupChips[index].second
         when {
             entry.code == SymbolPalette.OPEN_SYMBOLS_CODE -> listener?.onSymbolsRequested()
