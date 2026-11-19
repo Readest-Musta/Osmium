@@ -526,6 +526,8 @@ class MainActivity : Activity() {
         add(oneHanded)
         add(switchSetting("Split keyboard (centre gap)", Prefs.splitKeyboard(this),
             { Prefs.setSplitKeyboard(this, it) }))
+        add(sliderSetting("Emoji / clipboard panel height", 45, 75, Prefs.panelHeightPct(this),
+            { "$it%" }, { Prefs.setPanelHeightPct(this, PanelSizing.heightPercent(it)) }))
         add(switchSetting("Number row always visible", Prefs.numberRowAlways(this),
             { Prefs.setNumberRowAlways(this, it) }))
         add(switchSetting("Show mode name on spacebar", Prefs.spacebarLabel(this),

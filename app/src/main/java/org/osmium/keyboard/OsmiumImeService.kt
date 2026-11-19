@@ -285,6 +285,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 insertTextSafely(emoji)
                 haptic()
             }
+            onBack = { guarded { setPanelState(PanelState.NONE) } }
         }
 
         clipboardPanel = ClipboardPanel(this).apply {
@@ -293,11 +294,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 insertTextSafely(text)
                 haptic()
             }
+            onBack = { guarded { setPanelState(PanelState.NONE) } }
         }
 
         navigationPanel = NavigationPanel(this).apply {
             visibility = View.GONE
             onAction = { action -> onNavAction(action) }
+            onBack = { guarded { setPanelState(PanelState.NONE) } }
         }
 
         numericPanel = NumericPanel(this).apply {
@@ -325,11 +328,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             }
         }
 
-        val isLandscape = resources.configuration.orientation ==
-            android.content.res.Configuration.ORIENTATION_LANDSCAPE
         // The keyboard is hidden while a panel is open, so panels can use more
-        // of the landscape height without squeezing the emoji grid to ~24dp.
-        val panelHeightDp = if (isLandscape) 200 else 230
+        // of the screen height without squeezing the emoji grid.
+        val availableDp = resources.displayMetrics.heightPixels /
+            resources.displayMetrics.density
+        val panelHeightDp = (availableDp * PanelSizing.heightPercent(
+            Prefs.panelHeightPct(this)) / 100f).toInt().coerceIn(180, 520)
         container.addView(
             suggestionBar,
             LinearLayout.LayoutParams(

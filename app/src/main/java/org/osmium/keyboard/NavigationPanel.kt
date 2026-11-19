@@ -33,6 +33,7 @@ enum class NavAction {
 class NavigationPanel(context: Context) : LinearLayout(context) {
 
     var onAction: ((NavAction) -> Unit)? = null
+    var onBack: (() -> Unit)? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val longPressMs = Prefs.longPressMs(context).toLong()
@@ -42,6 +43,15 @@ class NavigationPanel(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         setBackgroundColor(Theme.palette(context).panelBg)
+
+        addView(TextView(context).apply {
+            text = "← Keyboard"
+            textSize = 13f
+            setTextColor(Theme.palette(context).accent)
+            setPadding(dp(10), dp(4), dp(10), dp(2))
+            isClickable = true
+            setOnClickListener { onBack?.invoke() }
+        }, rowParams())
 
         addView(row().apply {
             addView(arrow("⇤", NavAction.HOME), cell())

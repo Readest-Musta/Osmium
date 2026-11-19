@@ -23,6 +23,7 @@ import android.widget.TextView
 class ClipboardPanel(context: Context) : LinearLayout(context) {
 
     var onPaste: ((String) -> Unit)? = null
+    var onBack: (() -> Unit)? = null
 
     private val listHost: LinearLayout
     private val searchBox: EditText
@@ -48,6 +49,15 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                 override fun afterTextChanged(s: android.text.Editable?) = refresh()
             })
         }
+        addView(TextView(context).apply {
+            text = "← Keyboard"
+            textSize = 13f
+            setTextColor(Theme.palette(context).accent)
+            setPadding(dp(10), dp(4), dp(10), dp(2))
+            isClickable = true
+            setOnClickListener { onBack?.invoke() }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         addView(searchBox, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 

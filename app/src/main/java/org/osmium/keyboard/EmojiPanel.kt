@@ -29,6 +29,7 @@ import android.widget.TextView
 class EmojiPanel(context: Context) : LinearLayout(context) {
 
     var onEmojiPicked: ((String) -> Unit)? = null
+    var onBack: (() -> Unit)? = null
 
     private val grid: GridView
     private val searchBox: EditText
@@ -72,6 +73,14 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
                 override fun afterTextChanged(s: Editable?) = refresh()
             })
         }
+        addView(TextView(context).apply {
+            text = "← Keyboard"
+            textSize = 13f
+            setTextColor(Theme.palette(context).accent)
+            setPadding(dp(10), dp(4), dp(10), dp(2))
+            isClickable = true
+            setOnClickListener { onBack?.invoke() }
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(searchBox, LayoutParams(LayoutParams.MATCH_PARENT, dp(42)))
 
         // Horizontally scrollable category tabs. Fixed widths: layout_weight is

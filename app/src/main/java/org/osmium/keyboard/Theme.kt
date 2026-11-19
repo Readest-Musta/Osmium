@@ -130,5 +130,6 @@ object Theme {
         append(':').append(Prefs.showNavButton(context))
         append(':').append(Prefs.oneHandedMode(context))
         append(':').append(Prefs.splitKeyboard(context))
+        append(':').append(Prefs.panelHeightPct(context))
     }
 }
