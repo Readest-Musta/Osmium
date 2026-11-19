@@ -85,7 +85,11 @@ object UserLexicon {
         for ((k, v) in state.charNgrams) grams.put(k, v)
         root.put("charNgrams", grams)
         val bi = JSONObject()
-        for ((k, row) in state.bigrams) bi.put(k, JSONObject(row as Map<*, *>))
+        for ((k, row) in state.bigrams) {
+            val obj = JSONObject()
+            for ((key, count) in row) obj.put(key, count)
+            bi.put(k, obj)
+        }
         root.put("bigrams", bi)
         val w = org.json.JSONArray()
         state.weights.forEach { w.put(it) }
