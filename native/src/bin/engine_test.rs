@@ -61,6 +61,50 @@ fn main() {
         }
     }
 
+    // ---------------- Bengali orthography regressions ----------------
+    // Common romanised words must be reachable in the candidate list. We check
+    // presence rather than top-1 so dictionary updates don't create false alarms,
+    // but a missing word would be a real transliteration regression.
+    let orth = OsRiti::new(dir.clone(), user_dir.to_string(), "avro_phonetic".to_string());
+    for (roman, expected) in [
+        ("ami", "আমি"),
+        ("bangla", "বাংলা"),
+        ("banglay", "বাংলায়"),
+        ("gai", "গাই"),
+    ] {
+        orth.finish_session();
+        let mut state = None;
+        for c in roman.chars() {
+            let code = keycode_for_char(c.to_string());
+            assert_ne!(code, 0, "no keycode for '{c}'");
+            state = Some(orth.suggest_for_key(code, 0, 0));
+        }
+        let state = state.expect("non-empty romanised word");
+        assert!(
+            state.candidates.iter().any(|c| c == expected),
+            "'{roman}' should offer '{expected}', got {:?}",
+            state.candidates.iter().take(5).collect::<Vec<_>>()
+        );
+        orth.candidate_committed(0);
+    }
+    println!("orthography cases OK");
+
+    // ---------------- National Jatiya fixed layout ----------------
+    let jatiya_path = format!("{dir}/National_Jatiya.json");
+    let jatiya = OsRiti::new(dir.clone(), user_dir.to_string(), jatiya_path);
+    for (ch, expect) in [('k', 'ত'), ('a', 'ৃ'), ('D', 'ী')] {
+        jatiya.finish_session();
+        let code = keycode_for_char(ch.to_string());
+        let s = jatiya.suggest_for_key(code, 0, 0);
+        let got = s.candidates.first().cloned().unwrap_or_default();
+        assert_eq!(
+            got.chars().next(),
+            Some(expect),
+            "Jatiya '{ch}' should give '{expect}', got '{got}'"
+        );
+    }
+    println!("jatiya layout OK");
+
     // ---------------- Probhat layout + AltGr layer ----------------
     let probhat_path = format!("{dir}/Probhat.json");
     let probhat = OsRiti::new(dir.clone(), user_dir.to_string(), probhat_path);
