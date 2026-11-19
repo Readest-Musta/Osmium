@@ -434,12 +434,19 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         captureClipboard()
     }
 
-    /** Hardware DPAD up/down cycles the highlighted candidate during a session. */
+    /**
+     * Hardware keys: DPAD up/down cycles the highlighted candidate, and BACK
+     * dismisses an open panel instead of being swallowed by the editor.
+     */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if ((keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) &&
             engine.isSessionActive() && latest.candidates.isNotEmpty()
         ) {
             cycleCandidate(if (keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1)
+            return true
+        }
+        if (keyCode == KeyEvent.KEYCODE_BACK && panelState != PanelState.NONE) {
+            setPanelState(PanelState.NONE)
             return true
         }
         return super.onKeyDown(keyCode, event)
