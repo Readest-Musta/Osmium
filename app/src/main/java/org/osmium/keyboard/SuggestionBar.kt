@@ -7,8 +7,11 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import uniffi.osmium.OsSuggestion
 
 /**
@@ -30,11 +33,13 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     private lateinit var previewChip: TextView
     private var selectedIndex = 0
     private val incognitoIndicator: TextView
-    private val navButton: TextView
+    private val navButton: ImageView
     private val numberButton: TextView
-    private val clipboardChip: TextView
-    private val symbolsButton: TextView
-    private val settingsButton: TextView
+    private val clipboardChip: ImageView
+    private val symbolsButton: ImageView
+    private val settingsButton: ImageView
+    private val iconButtons: List<ImageView> get() =
+        listOf(navButton, clipboardChip, symbolsButton, settingsButton)
 
     init {
         orientation = HORIZONTAL
@@ -81,7 +86,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             addView(chip, barParams(1.6f))
         }
 
-        navButton = controlButton("⇱", "Navigation and editing").also {
+        navButton = iconButton(R.drawable.ic_nav, "Navigation and editing").also {
             it.setOnClickListener { onNavToggle?.invoke() }
             addView(it, barParams(1f))
         }
@@ -91,17 +96,17 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             addView(it, barParams(1f))
         }
 
-        clipboardChip = controlButton("📋", "Clipboard history").also {
+        clipboardChip = iconButton(R.drawable.ic_clipboard, "Clipboard history").also {
             it.setOnClickListener { onClipboardToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        symbolsButton = controlButton("#", "Symbols").also {
+        symbolsButton = iconButton(R.drawable.ic_symbols, "Symbols").also {
             it.setOnClickListener { onSymbolsToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        settingsButton = controlButton("⚙", "Settings").also {
+        settingsButton = iconButton(R.drawable.ic_settings, "Settings").also {
             it.setOnClickListener { onSettingsTap?.invoke() }
             addView(it, barParams(1f))
         }
@@ -130,6 +135,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
                 child.setTextColor(pal.keyTextHint)
             }
         }
+        for (button in iconButtons) tintIcon(button, pal.keyTextHint)
         styleChips()
     }
 
@@ -153,6 +159,20 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     ).toInt()
 
     private fun barParams(weight: Float) = LayoutParams(0, LayoutParams.MATCH_PARENT, weight)
+
+    /** A tinted vector icon keeps toolbar glyphs consistent across OEM fonts. */
+    private fun iconButton(resId: Int, description: String): ImageView =
+        ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER
+            contentDescription = description
+            isClickable = true
+            setImageDrawable(ContextCompat.getDrawable(context, resId)?.mutate())
+            tintIcon(this, Theme.palette(context).keyTextHint)
+        }
+
+    private fun tintIcon(view: ImageView, color: Int) {
+        view.drawable?.let { DrawableCompat.setTint(it, color) }
+    }
 
     private fun controlButton(label: String, description: String): TextView =
         TextView(context).apply {
