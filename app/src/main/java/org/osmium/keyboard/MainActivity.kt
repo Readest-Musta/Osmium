@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -845,11 +846,36 @@ class MainActivity : Activity() {
                 val dir = File(filesDir, "custom")
                 dir.mkdirs()
                 val target = File(dir, "keyboard_bg.img")
+                val tmp = File(dir, "keyboard_bg.tmp")
+                val mime = contentResolver.getType(uri)
+                var copied = 0L
                 contentResolver.openInputStream(uri)!!.use { input ->
-                    target.outputStream().use { input.copyTo(it) }
+                    tmp.outputStream().use { out ->
+                        val buf = ByteArray(16 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            copied += n
+                            if (copied > ImageImport.MAX_BYTES) {
+                                throw java.io.IOException("Image is larger than 8 MB")
+                            }
+                            out.write(buf, 0, n)
+                        }
+                    }
                 }
+                if (!ImageImport.isAcceptable(mime, copied)) {
+                    throw java.io.IOException("Not a supported image (or file too large)")
+                }
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(tmp.absolutePath, opts)
+                if (!ImageImport.dimensionsAcceptable(opts.outWidth, opts.outHeight)) {
+                    throw java.io.IOException("Image dimensions are too large")
+                }
+                if (!tmp.renameTo(target)) throw java.io.IOException("Could not save image")
                 Prefs.setBgImagePath(this, target.absolutePath)
+                toast("Background image set")
             } catch (t: Throwable) {
+                File(filesDir, "custom/keyboard_bg.tmp").delete()
                 toast("Could not load image: ${t.message}")
             }
             REQ_EXPORT -> try {

@@ -211,8 +211,20 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         else Prefs.addEmojiRecent(context, item)
     }
 
+    /** Puts the caret in the search field so typing filters immediately. */
+    fun focusSearch() {
+        searchBox.requestFocus()
+    }
+
     /** Rebuilds the grid from the current tab, sub-tab and search state. */
     fun refresh() {
+        // Replacing the adapter resets scroll; remember the viewport so live
+        // search doesn't jump back to the top on every keystroke.
+        val first = grid.firstVisiblePosition
+        val top = if (first != android.widget.AdapterView.INVALID_POSITION) {
+            (grid.getChildAt(0)?.top ?: grid.paddingTop) - grid.paddingTop
+        } else 0
+
         // Active tab/sub-tab styling; sub-tabs only belong to the SYMBOLS tab.
         for (tab in tabs) {
             val active = tab.tag == selected
@@ -231,6 +243,9 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         val next = EmojiAdapter(items)
         adapter = next
         grid.adapter = next
+        if (first != android.widget.AdapterView.INVALID_POSITION && first < items.size) {
+            grid.setSelectionFromTop(first, top)
+        }
         grid.setOnItemClickListener { _, _, position, _ ->
             val item = items.getOrNull(position) ?: return@setOnItemClickListener
             recordPick(item)

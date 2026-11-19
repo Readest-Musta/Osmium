@@ -1,5 +1,7 @@
 package org.osmium.keyboard
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.VibrationEffect
@@ -81,6 +83,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var incognito = false
     /** True when the current editor is a password field (privacy-sensitive UI). */
     private var currentFieldIsPassword = false
+    /** Password/number/email/URI fields must receive literal ASCII, not Bengali. */
+    private var currentFieldAsciiOnly = false
     /** Fingerprint of the settings baked into the current input view. */
     private var appliedSettingsKey: String? = null
     /** True while the error/retry view is installed, so a new field can recover. */
@@ -393,6 +397,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val noLearning = (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
         val isPassword = isPasswordField(info)
         currentFieldIsPassword = isPassword
+        currentFieldAsciiOnly = InputTypeRules.isAsciiOnly(info.inputType, isPassword)
         currentInputType = info.inputType
         currentEnterAction = if ((info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0) {
             EditorInfo.IME_ACTION_NONE
@@ -447,6 +452,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             cm.primaryClip?.getItemAt(0)?.text?.toString()
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    /** Writes text to the system clipboard when an editor ignores COPY/CUT. */
+    private fun copyToSystemClipboard(text: String) {
+        if (incognito) return
+        try {
+            val cm = getSystemService(ClipboardManager::class.java) ?: return
+            cm.setPrimaryClip(ClipData.newPlainText("Osmium", text))
+        } catch (_: Throwable) {
         }
     }
 
@@ -558,7 +573,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             KeyboardMode.AVRO, KeyboardMode.PROBHAT -> {
                 // Password fields must receive literal ASCII: transliterating a
                 // password into Bengali would lock the user out of their account.
-                if (currentFieldIsPassword && char.all { it.code < 128 }) {
+                if (currentFieldAsciiOnly && char.all { it.code < 128 }) {
                     currentInputConnection?.commitText(char, 1)
                 } else {
                     sendToRiti(char, modifier)
@@ -796,12 +811,21 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 sendMovementKey(ic, action)
             }
             NavAction.COPY -> {
-                ic.performContextMenuAction(android.R.id.copy)
+                val selected = ic.getSelectedText(0)?.toString()
+                val ok = ic.performContextMenuAction(android.R.id.copy)
+                if (EditorActions.needsDirectCopy(ok, selected)) {
+                    copyToSystemClipboard(selected!!)
+                }
                 captureClipboard()
             }
             NavAction.CUT -> {
                 snapshotForUndo(ic)
-                ic.performContextMenuAction(android.R.id.cut)
+                val selected = ic.getSelectedText(0)?.toString()
+                val ok = ic.performContextMenuAction(android.R.id.cut)
+                if (EditorActions.needsDirectCut(ok, selected)) {
+                    copyToSystemClipboard(selected!!)
+                    ic.commitText("", 1)
+                }
                 hideNavigationPanel() // text changed
             }
             NavAction.PASTE -> {
@@ -817,7 +841,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 }
                 hideNavigationPanel() // text changed
             }
-            NavAction.SELECT_ALL -> ic.performContextMenuAction(android.R.id.selectAll)
+            NavAction.SELECT_ALL -> {
+                if (!ic.performContextMenuAction(android.R.id.selectAll)) {
+                    val (start, end) = EditorActions.safeSelection(0, fullText(ic).length)
+                    ic.setSelection(start, end)
+                }
+            }
             NavAction.SELECT_WORD -> selectWordAtCursor(ic)
             NavAction.UNDO -> {
                 if (!ic.performContextMenuAction(android.R.id.undo)) undoFromSnapshot(ic)
@@ -1011,6 +1040,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (opening) {
             panel.applyTheme()
             panel.refresh()
+            panel.focusSearch()
         }
         setPanelState(if (opening) PanelState.EMOJI else PanelState.NONE)
     }
@@ -1091,7 +1121,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             // Password fields never echo typed characters in the suggestion
             // strip — compose silently instead. (Password fields already force
             // incognito on, but the explicit check keeps the privacy gate local.)
-            if (!currentFieldIsPassword) {
+            if (!currentFieldAsciiOnly) {
                 suggestionBar?.update(s)
             }
         }
