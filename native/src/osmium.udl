@@ -20,6 +20,41 @@ dictionary OsSuggestion {
     sequence<i32> original_indices;
 };
 
+dictionary GlidePoint {
+    f64 x;
+    f64 y;
+};
+
+dictionary GlideKey {
+    string code;
+    f64 cx;
+    f64 cy;
+    f64 half_w;
+    f64 half_h;
+};
+
+dictionary WordWeight {
+    string word;
+    f64 weight;
+};
+
+dictionary GlideCandidate {
+    string word;
+    f64 score;
+    sequence<string> keys;
+};
+
+interface OsGlideDecoder {
+    constructor(string database_dir, string user_dir, string layout);
+    sequence<GlideCandidate> recognize(
+        sequence<GlidePoint> trace,
+        sequence<GlideKey> keys,
+        sequence<string> context,
+        sequence<WordWeight> prior,
+        sequence<f64> user_weights
+    );
+};
+
 interface OsRiti {
     constructor(string database_dir, string user_dir, string layout);
 

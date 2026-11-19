@@ -4,6 +4,9 @@
 //! Avro Phonetic, fixed layouts (Probhat etc.), dictionary suggestions.
 //! This crate adapts it to a small, Kotlin-friendly API.
 
+pub mod glide;
+pub use glide::*;
+
 use riti::context::RitiContext;
 use riti::keycodes::*;
 use riti::suggestion::Suggestion;
