@@ -2,10 +2,12 @@ package org.osmium.keyboard
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -35,6 +37,8 @@ class MainActivity : Activity() {
 
     private lateinit var root: LinearLayout
     private var preview: KeyboardPreview? = null
+    private var enableButton: Button? = null
+    private var pickButton: Button? = null
     private val pad by lazy { (16 * resources.displayMetrics.density).toInt() }
 
     private companion object {
@@ -72,6 +76,7 @@ class MainActivity : Activity() {
             val pad = (16 * resources.displayMetrics.density).toInt()
             setPadding(0, pad, 0, pad)
         }
+        buildPrivacyCard()
         buildSetupSection()
         add(TextView(this).apply {
             text = "Live preview"
@@ -104,6 +109,37 @@ class MainActivity : Activity() {
         if (::root.isInitialized) {
             bindColorSwatches()
             preview?.refresh()
+            refreshSetupState()
+        }
+    }
+
+    /** True when Osmium appears in the system's enabled-IME list. */
+    private fun isOsmiumEnabled(): Boolean {
+        val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_INPUT_METHODS)
+            ?: return false
+        return enabled.split(':').any { it.equals(id, ignoreCase = true) }
+    }
+
+    /** True when Osmium is the currently selected input method. */
+    private fun isOsmiumDefault(): Boolean {
+        val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
+        val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+            ?: return false
+        return current.equals(id, ignoreCase = true)
+    }
+
+    /** Reflects real setup progress instead of showing the same two static buttons. */
+    private fun refreshSetupState() {
+        enableButton?.text = if (isOsmiumEnabled()) {
+            "✓ Osmium is enabled on this device"
+        } else {
+            "① Enable Osmium in system settings"
+        }
+        pickButton?.text = if (isOsmiumDefault()) {
+            "✓ Osmium is the active keyboard"
+        } else {
+            "② Switch to Osmium now"
         }
     }
 
@@ -206,20 +242,51 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Puts the project's strongest differentiator front and centre. */
+    private fun buildPrivacyCard() {
+        val pal = Theme.palette(this)
+        add(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(pal.panelBg)
+                cornerRadius = 16f * resources.displayMetrics.density
+            }
+            setPadding(pad, pad, pad, pad)
+            addView(TextView(context).apply {
+                text = "Privacy first"
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(pal.accent)
+            })
+            addView(TextView(context).apply {
+                text = "No INTERNET permission. No analytics. Learning and clipboard history "
+                    "stay on this device and are never uploaded."
+                textSize = 13f
+                setTextColor(pal.keyText)
+                setPadding(0, pad / 3, 0, pad / 3)
+            })
+            addView(switchSetting(
+                "Incognito by default (no learning, no clipboard capture)",
+                Prefs.incognitoByDefault(context),
+            ) { Prefs.setIncognitoByDefault(context, it) })
+        })
+    }
+
     private fun buildSetupSection() {
         add(header("Setup"))
         val enable = Button(this).apply {
-            text = "① Enable Osmium in system settings"
             setOnClickListener { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
         }
         val pick = Button(this).apply {
-            text = "② Switch to Osmium now"
             setOnClickListener {
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.showInputMethodPicker()
             }
         }
+        enableButton = enable
+        pickButton = pick
         add(enable); add(pick)
+        refreshSetupState()
 
         add(label("Bangla typing scheme (for the অ mode):"))
         val radioGroup = RadioGroup(this).apply {
