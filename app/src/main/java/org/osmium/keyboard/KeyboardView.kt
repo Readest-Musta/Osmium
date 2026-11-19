@@ -112,6 +112,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     private var candidateSelectActive = false
     private var enterAction: Int = EditorInfo.IME_ACTION_UNSPECIFIED
     private var numberRowVisible = false
+    /** True once the user toggled the number row; auto-show then backs off. */
+    private var numberRowManual = false
     private var pal = Theme.palette(context)
 
     // Appearance settings (read once — the IME rebuilds the view when they change).
@@ -1143,6 +1145,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     /** Toggles the number row. Returns the new visibility state. */
     fun toggleNumberRow(): Boolean {
+        numberRowManual = true
         numberRowVisible = !numberRowVisible
         numberRow?.visibility = if (numberRowVisible) VISIBLE else GONE
         return numberRowVisible
@@ -1164,9 +1167,18 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     /** True when the user explicitly chose shift/caps (auto-cap must back off). */
     fun isShiftManual(): Boolean = manualShift || capsLock
 
-    /** Enables/disables digit-key candidate selection (1-5 -> candidate 0-4). */
+    /**
+     * Enables/disables digit-key candidate selection (1-5 -> candidate 0-4).
+     * While a Bengali composition is live the number row appears automatically so
+     * the feature is actually reachable; a user who manually toggled the row keeps
+     * full control.
+     */
     fun setCandidateSelectionActive(active: Boolean) {
         candidateSelectActive = active
+        if (!Prefs.numberRowAlways(context) && !numberRowManual) {
+            numberRowVisible = active
+            numberRow?.visibility = if (active) VISIBLE else GONE
+        }
     }
 
     /** Sets the editor action the Enter key should perform and relabels it. */

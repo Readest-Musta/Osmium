@@ -506,8 +506,15 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 lastWasSpace = false
                 autoCapitalizeIfNeeded()
             }
-            KeyboardMode.AVRO -> sendToRiti(char, modifier)
-            KeyboardMode.PROBHAT -> sendToRiti(char, modifier)
+            KeyboardMode.AVRO, KeyboardMode.PROBHAT -> {
+                // Password fields must receive literal ASCII: transliterating a
+                // password into Bengali would lock the user out of their account.
+                if (currentFieldIsPassword && char.all { it.code < 128 }) {
+                    currentInputConnection?.commitText(char, 1)
+                } else {
+                    sendToRiti(char, modifier)
+                }
+            }
         }
     }
 
