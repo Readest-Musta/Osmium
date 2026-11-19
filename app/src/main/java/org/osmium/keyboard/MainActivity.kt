@@ -72,6 +72,57 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashReporter()
+        try {
+            buildUi()
+        } catch (t: Throwable) {
+            // Never hard-close on a settings-screen exception: show the exact
+            // failure so it can be reported and fixed at the root cause.
+            val report = t.stackTraceToString()
+            writeCrashReport(report)
+            setContentView(android.widget.ScrollView(this).apply {
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(pad, pad, pad, pad)
+                    addView(TextView(context).apply {
+                        text = "Osmium settings could not open:\n\n${t.javaClass.name}: ${t.message}\n\n$report"
+                        textSize = 11f
+                        setTextIsSelectable(true)
+                        setTextColor(0xFFE8EAF0.toInt())
+                    })
+                    addView(Button(context).apply {
+                        text = "Copy crash report"
+                        setOnClickListener {
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("Osmium crash", report))
+                            toast("Crash report copied")
+                        }
+                    })
+                })
+            })
+        }
+    }
+
+    /** Records uncaught exceptions from anywhere in this process to shared storage. */
+    private fun installCrashReporter() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            writeCrashReport("Thread: ${thread.name}\n${error.stackTraceToString()}")
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
+    private fun writeCrashReport(report: String) {
+        try {
+            val dir = java.io.File("/sdcard/Download")
+            if (dir.exists()) {
+                java.io.File(dir, "osmium-crash-report.txt").writeText(report)
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun buildUi() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (16 * resources.displayMetrics.density).toInt()
