@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.inputmethodservice.InputMethodService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
@@ -103,6 +105,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var directCommitLength = 0
     /** Whether the composing-span probe has run for the current field. */
     private var composingProbeDone = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private fun noteCommitted(text: String) {
         for (c in text) {
@@ -1223,7 +1226,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun scheduleComposingProbe(composed: String) {
         if (composingProbeDone || composed.isEmpty()) return
         composingProbeDone = true
-        handler.postDelayed({
+        mainHandler.postDelayed({
             if (!directCommitMode && latest.candidates.getOrNull(latest.selection) == composed) {
                 val before = currentInputConnection
                     ?.getTextBeforeCursor(composed.length.coerceAtMost(128), 0)?.toString()
