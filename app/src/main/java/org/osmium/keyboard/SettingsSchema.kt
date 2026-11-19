@@ -56,6 +56,7 @@ object SettingsSchema {
         put("bangla_scheme", Spec(Kind.TEXT))
         put("selected_layout", Spec(Kind.TEXT))
         put("emoji_recents", Spec(Kind.TEXT))
+        put("symbol_recents", Spec(Kind.TEXT))
         put("clipboard_items", Spec(Kind.TEXT))
         put("custom_color_keyboard_bg", Spec(Kind.TEXT))
         put("custom_color_key", Spec(Kind.TEXT))

@@ -75,6 +75,8 @@ class SettingsSchemaTest {
             "key_height_scale" to 100 as Any,
             "bg_image_path" to "" as Any,
             "custom_color_accent" to "4F8CFF" as Any,
+            "emoji_recents" to "[]" as Any,
+            "symbol_recents" to "[]" as Any,
             "clipboard_items" to "[]" as Any,
             "toolbar_settings" to true as Any,
             "selected_layout" to "my-layout.json" as Any,
@@ -82,6 +84,16 @@ class SettingsSchemaTest {
         for ((key, value) in valid) {
             assertEquals(key to value, SettingsSchema.normalize(key, value))
         }
+    }
+
+    @Test
+    fun symbolRecentsSurvivesImportRoundTrip() {
+        // Added by T8: without a TEXT spec the freshly split symbol recents were
+        // silently dropped on every settings import/export.
+        val recents = "[\"★\",\"❤\"]"
+        assertEquals("symbol_recents" to recents,
+            SettingsSchema.normalize("symbol_recents", recents))
+        assertNull(SettingsSchema.normalize("symbol_recents", 7))
     }
 
     @Test
