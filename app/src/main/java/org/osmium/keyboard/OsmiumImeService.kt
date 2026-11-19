@@ -91,6 +91,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
      * think every key started a new sentence. This local buffer is authoritative.
      */
     private val recentCommitted = ArrayDeque<Char>()
+    /** Last string we put in the composing span; avoids a redundant editor round-trip. */
+    private var lastComposed: String? = null
 
     private fun noteCommitted(text: String) {
         for (c in text) {
@@ -1121,6 +1123,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             ic.commitText(candidate, 1)
             noteCommitted(candidate)
             ic.finishComposingText()
+            lastComposed = null
             // `index` is a display index; tell riti its original index instead.
             engine.candidateCommitted(index, latest.originalIndices)
             latest = RitiEngine.EMPTY
@@ -1165,7 +1168,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             clearComposition(ic)
             suggestionBar?.clear()
         } else {
-            ic.setComposingText(composed, 1)
+            if (composed != lastComposed) {
+                // Setting the same composing text every keystroke forces an editor
+                // round-trip and a full re-layout in some apps; skip it when unchanged.
+                ic.setComposingText(composed, 1)
+                lastComposed = composed
+            }
             // Password fields never echo typed characters in the suggestion
             // strip — compose silently instead. (Password fields already force
             // incognito on, but the explicit check keeps the privacy gate local.)
@@ -1191,6 +1199,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 ic.commitText(selected, 1)
                 noteCommitted(selected)
                 ic.finishComposingText()
+                lastComposed = null
                 // `latest.selection` is a display index; translate before riti.
                 engine.candidateCommitted(latest.selection, latest.originalIndices)
             }
@@ -1207,6 +1216,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         try {
             ic.setComposingText("", 1)
             ic.finishComposingText()
+            lastComposed = null
             latest = RitiEngine.EMPTY
             suggestionBar?.clear()
             keyboardView?.setCandidateSelectionActive(false)

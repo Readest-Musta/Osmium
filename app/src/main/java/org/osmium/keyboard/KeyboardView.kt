@@ -1201,7 +1201,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
      */
     fun setCandidateSelectionActive(active: Boolean) {
         candidateSelectActive = active
-        if (!Prefs.numberRowAlways(context) && !numberRowManual) {
+        if (!Prefs.numberRowAlways(context) && !numberRowManual &&
+            numberRowVisible != active
+        ) {
             numberRowVisible = active
             numberRow?.visibility = if (active) VISIBLE else GONE
         }
