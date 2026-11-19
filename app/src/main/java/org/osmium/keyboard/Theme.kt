@@ -81,22 +81,19 @@ object Theme {
         return Palette(
             keyboardBg = pick("custom_color_keyboard_bg", base.keyboardBg),
             keyNormal = keyNormal,
-            keyPressed = keyNormal.shifted(1.25f),
-            keyAction = keyNormal.shifted(0.85f),
+            keyPressed = ColorMath.blend(
+                keyNormal,
+                if (ColorMath.isDark(keyNormal)) ColorMath.WHITE else ColorMath.BLACK,
+                0.14f,
+            ),
+            keyAction = ColorMath.blend(keyNormal, ColorMath.BLACK, 0.10f),
             keyText = keyText,
             keyTextHint = keyText.withAlpha(140),
             accent = pick("custom_color_accent", base.accent),
             barBg = pick("custom_color_bar", base.barBg),
             panelBg = pick("custom_color_panel", base.panelBg),
-            popupBg = keyNormal.shifted(1.3f),
+            popupBg = ColorMath.blend(keyNormal, ColorMath.WHITE, 0.12f),
         )
-    }
-
-    private fun Int.shifted(factor: Float): Int {
-        val r = (Color.red(this) * factor).coerceIn(0f, 255f).toInt()
-        val g = (Color.green(this) * factor).coerceIn(0f, 255f).toInt()
-        val b = (Color.blue(this) * factor).coerceIn(0f, 255f).toInt()
-        return Color.argb(255, r, g, b)
     }
 
     private fun Int.withAlpha(alpha: Int): Int =

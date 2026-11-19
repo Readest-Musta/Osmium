@@ -68,6 +68,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             val chip = TextView(context).apply {
                 gravity = Gravity.CENTER
                 maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
                 textSize = 16f
                 setTextColor(Theme.palette(context).keyText)
                 setPadding(dp(4), 0, dp(4), 0)
@@ -139,7 +140,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             val chip = chips[i]
             if (i == selectedIndex && chip.visibility == VISIBLE) {
                 chip.setBackgroundColor(pal.accent)
-                chip.setTextColor(Theme.dark.keyText)
+                chip.setTextColor(ColorMath.onColor(pal.accent))
             } else {
                 chip.setBackgroundColor(Color.TRANSPARENT)
                 chip.setTextColor(pal.keyText)

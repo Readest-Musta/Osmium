@@ -1,7 +1,11 @@
 package org.osmium.keyboard
 
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.animation.StateListAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -12,9 +16,11 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
+import android.util.StateSet
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -744,7 +750,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             for ((i, pair) in popupChips.withIndex()) {
                 if (i == found) {
                     pair.first.setBackgroundColor(pal.accent)
-                    pair.first.setTextColor(Theme.dark.keyText)
+                    pair.first.setTextColor(ColorMath.onColor(pal.accent))
                 } else {
                     pair.first.setBackgroundColor(Color.TRANSPARENT)
                     pair.first.setTextColor(pal.keyText)
@@ -1279,12 +1285,25 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         }
 
         fun refreshStyle() {
-            background = when (kind) {
-                OsmiumKeyKind.ACCENT -> fillDrawable(pal.accent)
-                OsmiumKeyKind.ACTION -> stateDrawable(pal.keyAction, pal.keyPressed)
-                else -> stateDrawable(pal.keyNormal, pal.keyPressed)
+            val (normal, pressed) = when (kind) {
+                OsmiumKeyKind.ACCENT -> pal.accent to ColorMath.blend(pal.accent, pal.keyText, 0.2f)
+                OsmiumKeyKind.ACTION -> pal.keyAction to pal.keyPressed
+                else -> pal.keyNormal to pal.keyPressed
             }
-            setTextColor(if (kind == OsmiumKeyKind.ACTION) pal.keyTextHint else pal.keyText)
+            // A ripple on top of the pressed colour gives tactile feedback without
+            // needing a Material dependency; the rounded drawable doubles as mask.
+            val ripple = ColorMath.blend(
+                pressed,
+                ColorMath.WHITE,
+                if (ColorMath.isDark(pressed)) 0.25f else 0f,
+            )
+            background = RippleDrawable(
+                ColorStateList.valueOf(ripple),
+                stateDrawable(normal, pressed),
+                round(normal),
+            )
+            stateListAnimator = pressAnimator()
+            setTextColor(if (kind == OsmiumKeyKind.ACTION) pal.keyTextHint else ColorMath.onColor(normal))
         }
 
         private fun round(color: Int): GradientDrawable = GradientDrawable().apply {
@@ -1292,14 +1311,28 @@ class KeyboardView(context: Context) : FrameLayout(context) {
             setColor(color)
         }
 
-        private fun fillDrawable(normal: Int) = round(normal)
-
         private fun stateDrawable(normal: Int, pressed: Int): StateListDrawable {
             val list = StateListDrawable()
             list.addState(intArrayOf(android.R.attr.state_pressed), round(pressed))
-            list.addState(android.util.StateSet.NOTHING, round(normal))
+            list.addState(StateSet.NOTHING, round(normal))
             return list
         }
+
+        /** Small scale/elevation "key pop" on press, with a matching release. */
+        private fun pressAnimator(): StateListAnimator = StateListAnimator().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), keyAnimation(0.94f, dp(2).toFloat()))
+            addState(StateSet.NOTHING, keyAnimation(1f, 0f))
+        }
+
+        private fun keyAnimation(scale: Float, elevation: Float): AnimatorSet =
+            AnimatorSet().apply {
+                duration = 90
+                playTogether(
+                    ObjectAnimator.ofFloat(this@OsmiumKey, View.SCALE_X, scale),
+                    ObjectAnimator.ofFloat(this@OsmiumKey, View.SCALE_Y, scale),
+                    ObjectAnimator.ofFloat(this@OsmiumKey, View.TRANSLATION_Z, elevation),
+                )
+            }
     }
 }
 
