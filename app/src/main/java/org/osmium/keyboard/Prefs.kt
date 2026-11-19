@@ -241,6 +241,25 @@ object Prefs {
         sp(context).edit().putBoolean(KEY_TOOL_CLIP, value).apply()
     }
 
+    /** Word glide typing (Bangla modes). */
+    fun glideTyping(context: Context): Boolean =
+        sp(context).getBoolean(KEY_GLIDE_TYPING, true)
+    fun setGlideTyping(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_GLIDE_TYPING, value).apply()
+    }
+
+    /** On-device learner blob; only derived counts and weights, never raw text. */
+    fun learnerJson(context: Context): String? =
+        sp(context).getString(KEY_LEARNER, null)
+
+    fun setLearnerJson(context: Context, json: String) {
+        sp(context).edit().putString(KEY_LEARNER, json).apply()
+    }
+
+    fun clearLearner(context: Context) {
+        sp(context).edit().remove(KEY_LEARNER).apply()
+    }
+
     /** Panel height as a percentage of the available IME height (45..75). */
     fun panelHeightPct(context: Context): Int =
         sp(context).getInt(KEY_PANEL_HEIGHT, 60)
@@ -422,6 +441,8 @@ object Prefs {
     private const val KEY_C_BAR = "custom_color_bar"
     private const val KEY_C_PANEL = "custom_color_panel"
     private const val KEY_CLIPBOARD = "clipboard_items"
+    private const val KEY_GLIDE_TYPING = "glide_typing"
+    private const val KEY_LEARNER = "learner_state_v1"
     private const val KEY_PANEL_HEIGHT = "panel_height_pct"
     private const val KEY_SPLIT_KEYBOARD = "split_keyboard"
     private const val KEY_ONE_HANDED = "one_handed_mode"

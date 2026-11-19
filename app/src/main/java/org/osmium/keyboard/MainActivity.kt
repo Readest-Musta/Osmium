@@ -585,6 +585,8 @@ class MainActivity : Activity() {
             { Prefs.setDoubleSpaceDari(this, it) }))
         add(switchSetting("Auto-capitalize sentences (English)", Prefs.autoCapitalize(this),
             { Prefs.setAutoCapitalize(this, it) }))
+        add(switchSetting("Word glide typing (slide across letters)", Prefs.glideTyping(this),
+            { Prefs.setGlideTyping(this, it) }))
         add(switchSetting("Spacebar glide moves the cursor", Prefs.glideCursor(this),
             { Prefs.setGlideCursor(this, it) }))
         add(sliderSetting("Glide sensitivity", 10, 60, Prefs.glideSensitivityDp(this),
@@ -765,6 +767,13 @@ class MainActivity : Activity() {
             setOnClickListener { showRawEditor() }
         }
         add(advanced)
+        add(Button(this).apply {
+            text = "Delete learned words"
+            setOnClickListener {
+                Prefs.clearLearner(this@MainActivity)
+                toast("Learned words deleted")
+            }
+        })
         add(note("Full control: every Osmium preference is a JSON key here. Edit values, save, and " +
                 "reopen the keyboard. Invalid values are ignored."))
         endCard()

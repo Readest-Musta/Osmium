@@ -458,6 +458,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         setPanelState(panelForField(info.inputType))
         resetDoubleSpace()
         recentCommitted.clear()
+        recentWords.clear()
         lastComposed = null
         directCommitLength = 0
         composingProbeDone = false
@@ -652,6 +653,20 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     /** Glide decoding lands in Phase B; for now remember the path for diagnostics. */
     private var lastGlidePointCount = 0
+
+    /** Derived, bounded on-device learning state (no raw text stored). */
+    private var learner = UserLexicon.decode(Prefs.learnerJson(this))
+    private val recentWords = ArrayDeque<String>()
+
+    private fun recordLearning(word: String) {
+        val allowed = !incognito && !currentFieldAsciiOnly &&
+            Prefs.incognitoByDefault(this).not()
+        if (!allowed) return
+        UserLexicon.recordCommit(learner, word, recentWords.toList(), System.currentTimeMillis(), true)
+        while (recentWords.size > 8) recentWords.removeFirst()
+        recentWords.addLast(word)
+        Prefs.setLearnerJson(this, UserLexicon.encode(learner))
+    }
 
     override fun onGlideSample(points: List<GlidePoint>) = guarded {
         lastGlidePointCount = points.size
@@ -1166,6 +1181,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             noteCommitted(candidate)
             ic.finishComposingText()
             lastComposed = null
+            recordLearning(candidate)
             // `index` is a display index; tell riti its original index instead.
             engine.candidateCommitted(index, latest.originalIndices)
             latest = RitiEngine.EMPTY
@@ -1289,6 +1305,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                     ic.finishComposingText()
                 }
                 lastComposed = null
+                recordLearning(selected)
                 // `latest.selection` is a display index; translate before riti.
                 engine.candidateCommitted(latest.selection, latest.originalIndices)
             }
