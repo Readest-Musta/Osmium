@@ -14,7 +14,8 @@ fn main() {
     // ---------------- Avro phonetic flow ----------------
     let riti = OsRiti::new(dir.clone(), user_dir.to_string(), "avro_phonetic".to_string());
 
-    let text = "ami bang banglay gan gai";
+    let text = std::env::args().nth(2)
+        .unwrap_or_else(|| "ami bang banglay gan gai".to_string());
     println!("typing: {text:?}");
     for c in text.chars() {
         if c == ' ' {
