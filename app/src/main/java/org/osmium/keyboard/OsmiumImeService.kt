@@ -54,6 +54,14 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Last clipboard text seen, for change detection. */
     private var lastClip = ""
 
+    /** Single owner of which panel is open; closing always resets transient state. */
+    private enum class PanelState { NONE, EMOJI, CLIPBOARD, NAV }
+    private var panelState = PanelState.NONE
+
+    /** Text snapshots backing the undo/redo fallback when the app has no native undo. */
+    private var undoSnapshot: String? = null
+    private var redoSnapshot: String? = null
+
     override fun onCreate() {
         super.onCreate()
         engine = RitiEngine(this)
@@ -252,7 +260,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
         keyboardView?.setCandidateSelectionActive(false)
-        setPanelVisible(null)
+        setPanelState(PanelState.NONE)
         resetDoubleSpace()
         autoCapitalizeIfNeeded()
         captureClipboard()
@@ -308,26 +316,32 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     /**
-     * Shows [panel] in place of the keyboard (panels are mutually exclusive);
-     * null dismisses every panel and restores the keyboard.
+     * Single owner of panel visibility. Every transition to [PanelState.NONE]
+     * clears transient UI state (emoji search query/focus, navigation repeat
+     * timers) so no panel can reopen in a stale state.
      */
-    private fun setPanelVisible(panel: View?) {
-        emojiPanel?.visibility = if (panel === emojiPanel) View.VISIBLE else View.GONE
-        clipboardPanel?.visibility = if (panel === clipboardPanel) View.VISIBLE else View.GONE
-        navigationPanel?.visibility = if (panel === navigationPanel) View.VISIBLE else View.GONE
-        keyboardView?.visibility = if (panel == null) View.VISIBLE else View.GONE
+    private fun setPanelState(state: PanelState) {
+        if (state == PanelState.NONE && panelState != PanelState.NONE) {
+            emojiPanel?.clearSearch()
+            navigationPanel?.clearTimers()
+        }
+        panelState = state
+        emojiPanel?.visibility = if (state == PanelState.EMOJI) View.VISIBLE else View.GONE
+        clipboardPanel?.visibility = if (state == PanelState.CLIPBOARD) View.VISIBLE else View.GONE
+        navigationPanel?.visibility = if (state == PanelState.NAV) View.VISIBLE else View.GONE
+        keyboardView?.visibility = if (state == PanelState.NONE) View.VISIBLE else View.GONE
     }
 
     /** True while the emoji search field is open and should receive on-screen keys. */
     private fun emojiSearchActive(): Boolean =
-        emojiPanel?.visibility == View.VISIBLE && emojiPanel?.isSearchFocused() == true
+        panelState == PanelState.EMOJI && emojiPanel?.isSearchFocused() == true
 
     private fun toggleClipboardPanel() = guarded {
         haptic()
         val clip = clipboardPanel ?: return@guarded
-        val opening = clip.visibility != View.VISIBLE
+        val opening = panelState != PanelState.CLIPBOARD
         if (opening) clip.refresh()
-        setPanelVisible(if (opening) clip else null)
+        setPanelState(if (opening) PanelState.CLIPBOARD else PanelState.NONE)
     }
 
     private fun isPasswordField(info: EditorInfo): Boolean {
@@ -551,6 +565,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 captureClipboard()
             }
             NavAction.CUT -> {
+                snapshotForUndo(ic)
                 ic.performContextMenuAction(android.R.id.cut)
                 hideNavigationPanel() // text changed
             }
@@ -569,12 +584,56 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             }
             NavAction.SELECT_ALL -> ic.performContextMenuAction(android.R.id.selectAll)
             NavAction.SELECT_WORD -> selectWordAtCursor(ic)
+            NavAction.UNDO -> {
+                if (!ic.performContextMenuAction(android.R.id.undo)) undoFromSnapshot(ic)
+            }
+            NavAction.REDO -> {
+                if (!ic.performContextMenuAction(android.R.id.redo)) redoFromSnapshot(ic)
+            }
+        }
+    }
+
+    /** Best-effort full field text, used only for the undo/redo snapshot fallback. */
+    private fun fullText(ic: InputConnection): String {
+        val before = ic.getTextBeforeCursor(20_000, 0)?.toString().orEmpty()
+        val after = ic.getTextAfterCursor(20_000, 0)?.toString().orEmpty()
+        return before + after
+    }
+
+    /** Records the pre-edit text so a field without native undo can still revert. */
+    private fun snapshotForUndo(ic: InputConnection) {
+        undoSnapshot = fullText(ic)
+        redoSnapshot = null
+    }
+
+    private fun undoFromSnapshot(ic: InputConnection) {
+        val snap = undoSnapshot ?: return
+        redoSnapshot = fullText(ic)
+        replaceAllText(ic, snap)
+        undoSnapshot = null
+    }
+
+    private fun redoFromSnapshot(ic: InputConnection) {
+        val snap = redoSnapshot ?: return
+        undoSnapshot = fullText(ic)
+        replaceAllText(ic, snap)
+        redoSnapshot = null
+    }
+
+    /** Replaces the whole editor contents in a single batch edit. */
+    private fun replaceAllText(ic: InputConnection, text: String) {
+        ic.beginBatchEdit()
+        try {
+            ic.performContextMenuAction(android.R.id.selectAll)
+            ic.commitText(text, 1)
+        } finally {
+            ic.endBatchEdit()
         }
     }
 
     private fun hideNavigationPanel() {
         // Restore the keyboard too — with a panel open it is GONE.
-        setPanelVisible(null)
+        setPanelState(PanelState.NONE)
     }
 
     /**
@@ -675,7 +734,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0) ?: return
         val s = et.text?.toString() ?: return
         val rel = et.selectionStart.coerceIn(0, s.length)
-        val range = TextNav.wordRangeAround(s, rel)
+        val range = TextNav.wordRangeAroundBangla(s, rel)
         // Extracted-text offsets are relative to et.startOffset; setSelection is absolute.
         ic.setSelection(et.startOffset + range.first, et.startOffset + range.last)
     }
@@ -684,9 +743,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         haptic()
         resetDoubleSpace()
         if (emojiSearchActive()) {
-            // Done searching: end search mode and hand the keyboard back.
-            emojiPanel?.clearSearchFocus()
-            setPanelVisible(null)
+            // Done searching: clear the query/focus and hand the keyboard back.
+            setPanelState(PanelState.NONE)
             return@guarded
         }
         val ic = currentInputConnection ?: return@guarded
@@ -713,9 +771,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onEmojiToggle() = guarded {
         haptic()
         val panel = emojiPanel ?: return@guarded
-        val opening = panel.visibility != View.VISIBLE
-        if (opening) panel.refresh()
-        setPanelVisible(if (opening) panel else null)
+        val opening = panelState != PanelState.EMOJI
+        if (opening) {
+            panel.applyTheme()
+            panel.refresh()
+        }
+        setPanelState(if (opening) PanelState.EMOJI else PanelState.NONE)
     }
 
     override fun onNumberRowToggle() = guarded {
@@ -726,9 +787,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onNavigationToggle() = guarded {
         haptic()
         val nav = navigationPanel ?: return@guarded
-        val opening = nav.visibility != View.VISIBLE
+        val opening = panelState != PanelState.NAV
         if (opening) nav.refreshTheme()
-        setPanelVisible(if (opening) nav else null)
+        setPanelState(if (opening) PanelState.NAV else PanelState.NONE)
     }
 
     // ------------------------------------------------------------------
@@ -839,6 +900,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
      */
     private fun insertTextSafely(text: String) {
         val ic = currentInputConnection ?: return
+        snapshotForUndo(ic)
         ic.beginBatchEdit()
         try {
             if (engine.isSessionActive()) commitCurrentCandidate()

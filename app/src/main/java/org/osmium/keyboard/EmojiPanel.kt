@@ -2,11 +2,13 @@ package org.osmium.keyboard
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -20,8 +22,9 @@ import android.widget.TextView
  *
  * A search field is pinned at the top; below it a horizontally scrollable tab
  * bar selects an emoji category. The SYMBOLS tab reveals a second scrollable
- * row of sub-tabs backed by [EmojiData.SYMBOL_GROUPS]. Tapping any emoji or
- * symbol records it in recents and forwards it through [onEmojiPicked].
+ * row of sub-tabs backed by [EmojiData.SYMBOL_GROUPS], with a leading recents
+ * tab. Tapping any emoji or symbol records it in the matching (emoji vs symbol)
+ * recents list and forwards it through [onEmojiPicked].
  */
 class EmojiPanel(context: Context) : LinearLayout(context) {
 
@@ -32,8 +35,13 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
     private val subTabRow: HorizontalScrollView
     private val tabs = mutableListOf<TextView>()
     private val subTabs = mutableListOf<TextView>()
+    private var adapter: EmojiAdapter? = null
     private var selected = EmojiCategory.SMILEYS
     private var symbolGroupIndex = 0
+
+    /** Leading "recent symbols" sub-tab, then the fixed symbol groups. */
+    private val symbolTabs: List<EmojiData.SymbolGroup> =
+        listOf(EmojiData.SymbolGroup("recent", "🕘", emptyList())) + EmojiData.SYMBOL_GROUPS
 
     init {
         orientation = VERTICAL
@@ -63,8 +71,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
             tab.setOnClickListener {
                 selected = cat
                 // A tab tap means "show this category", not "keep filtering".
-                searchBox.text?.clear()
-                searchBox.clearFocus()
+                clearSearch()
                 refresh()
             }
             tabs.add(tab)
@@ -79,12 +86,11 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
 
         // Sub-tabs for the SYMBOLS category; hidden for every other tab.
         val subTabBar = LinearLayout(context).apply { orientation = HORIZONTAL }
-        for ((index, group) in EmojiData.SYMBOL_GROUPS.withIndex()) {
+        for ((index, group) in symbolTabs.withIndex()) {
             val tab = newTab(group.label, group.id)
             tab.setOnClickListener {
                 symbolGroupIndex = index
-                searchBox.text?.clear()
-                searchBox.clearFocus()
+                clearSearch()
                 refresh()
             }
             subTabs.add(tab)
@@ -116,7 +122,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         this.tag = tag
     }
 
-    /** Re-styles for the current theme. */
+    /** Re-styles for the current theme, including the grid's text/cell colours. */
     fun applyTheme() {
         val pal = Theme.palette(context)
         setBackgroundColor(pal.panelBg)
@@ -124,6 +130,7 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         searchBox.setHintTextColor(pal.keyTextHint)
         for (tab in tabs) tab.setTextColor(pal.keyText)
         for (tab in subTabs) tab.setTextColor(pal.keyText)
+        adapter?.notifyDataSetChanged()
     }
 
     /** True while the search field has focus and on-screen keys should type into it. */
@@ -148,8 +155,12 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** Ends search mode so subsequent keys go back to the app's text field. */
-    fun clearSearchFocus() {
+    /**
+     * Ends search mode: clears the query and focus so a later open starts from
+     * a clean state and subsequent keys go back to the app's text field.
+     */
+    fun clearSearch() {
+        searchBox.text?.clear()
         searchBox.clearFocus()
     }
 
@@ -160,9 +171,17 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
     /** Items to show for the current tab/sub-tab when the search box is blank. */
     private fun itemsForSelection(): List<String> = when (selected) {
         EmojiCategory.RECENTS -> Prefs.emojiRecents(context)
-        EmojiCategory.SYMBOLS ->
-            EmojiData.SYMBOL_GROUPS.getOrNull(symbolGroupIndex)?.items.orEmpty()
+        EmojiCategory.SYMBOLS -> {
+            val group = symbolTabs.getOrNull(symbolGroupIndex)
+            if (group?.id == "recent") Prefs.symbolRecents(context) else group?.items.orEmpty()
+        }
         else -> EmojiData.EMOJI[selected].orEmpty()
+    }
+
+    /** Records a pick in the correct recents list (emoji vs special symbol). */
+    private fun recordPick(item: String) {
+        if (EmojiData.isSymbol(item)) Prefs.addSymbolRecent(context, item)
+        else Prefs.addEmojiRecent(context, item)
     }
 
     /** Rebuilds the grid from the current tab, sub-tab and search state. */
@@ -182,17 +201,37 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
 
         val query = searchBox.text?.toString().orEmpty()
         val items = if (query.isBlank()) itemsForSelection() else EmojiData.search(query)
-        grid.adapter = ArrayAdapter(
-            context,
-            android.R.layout.simple_list_item_1,
-            items
-        ).apply {
-            setDropDownViewResource(android.R.layout.simple_list_item_1)
-        }
+        val next = EmojiAdapter(items)
+        adapter = next
+        grid.adapter = next
         grid.setOnItemClickListener { _, _, position, _ ->
-            val emoji = items.getOrNull(position) ?: return@setOnItemClickListener
-            Prefs.addEmojiRecent(context, emoji)
-            onEmojiPicked?.invoke(emoji)
+            val item = items.getOrNull(position) ?: return@setOnItemClickListener
+            recordPick(item)
+            onEmojiPicked?.invoke(item)
+        }
+    }
+
+    /**
+     * Grid cells themed with the live palette: keyText for the glyph and an
+     * panelBg rounded cell background, instead of the platform list-item colours.
+     */
+    private inner class EmojiAdapter(items: List<String>) :
+        ArrayAdapter<String>(context, 0, items) {
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = (convertView as? TextView) ?: TextView(context).apply {
+                gravity = Gravity.CENTER
+                textSize = 26f
+                setPadding(dp(2), dp(4), dp(2), dp(4))
+            }
+            val pal = Theme.palette(context)
+            view.text = getItem(position)
+            view.setTextColor(pal.keyText)
+            view.background = GradientDrawable().apply {
+                setColor(pal.panelBg)
+                cornerRadius = dp(6).toFloat()
+            }
+            return view
         }
     }
 }

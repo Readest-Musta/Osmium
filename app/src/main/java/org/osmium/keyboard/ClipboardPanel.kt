@@ -62,7 +62,7 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
     }
 
     @SuppressLint("ViewConstructor")
-    private inner class Row(val item: Prefs.ClipboardItem, val index: Int) : LinearLayout(context) {
+    private inner class Row(val item: Prefs.ClipboardItem) : LinearLayout(context) {
 
         init {
             orientation = LinearLayout.HORIZONTAL
@@ -82,7 +82,7 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                 textSize = 14f
                 setPadding(dp(8), 0, dp(8), 0)
                 setOnClickListener {
-                    Prefs.toggleClipboardPin(context, index)
+                    Prefs.toggleClipboardPin(context, item.id)
                     refresh()
                 }
             })
@@ -93,7 +93,7 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                 setTextColor(Theme.palette(context).keyTextHint)
                 setPadding(dp(8), 0, dp(8), 0)
                 setOnClickListener {
-                    Prefs.removeClipboardItem(context, index)
+                    Prefs.removeClipboardItem(context, item.id)
                     refresh()
                 }
             })
@@ -116,13 +116,11 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
             })
             return
         }
-        // Pinned first, then newest-first for the rest.
-        val ordered = items.sortedByDescending { it.pinned }
-        for ((i, item) in ordered.withIndex()) {
-            // Index refers to the original position in Prefs storage.
-            val originalIndex = items.indexOf(item)
-            listHost.addView(Row(item, originalIndex), RowParams())
-        }
+        // Pinned first, then newest-first (by the stable timestamp).
+        val ordered = items.sortedWith(
+            compareByDescending<Prefs.ClipboardItem> { it.pinned }.thenByDescending { it.at }
+        )
+        for (item in ordered) listHost.addView(Row(item), RowParams())
     }
 
     private fun dp(v: Int): Int = TypedValue.applyDimension(

@@ -17,7 +17,8 @@ import android.widget.TextView
 enum class NavAction {
     HOME, LEFT, UP, DOWN, RIGHT, END,
     DOC_START, DOC_END,
-    COPY, CUT, PASTE, SELECT_WORD, SELECT_ALL
+    COPY, CUT, PASTE, SELECT_WORD, SELECT_ALL,
+    UNDO, REDO
 }
 
 /**
@@ -54,6 +55,8 @@ class NavigationPanel(context: Context) : LinearLayout(context) {
         addView(row().apply {
             addView(button("⏮ Start", NavAction.DOC_START), cell())
             addView(button("End ⏭", NavAction.DOC_END), cell())
+            addView(button("↶ Undo", NavAction.UNDO), cell())
+            addView(button("↷ Redo", NavAction.REDO), cell())
         }, rowParams())
 
         addView(row().apply {
@@ -154,8 +157,14 @@ class NavigationPanel(context: Context) : LinearLayout(context) {
         for (btn in themedButtons) style(btn)
     }
 
+    /** Cancels any pending arrow hold-repeat callbacks (called on every close). */
+    fun clearTimers() {
+        handler.removeCallbacksAndMessages(null)
+    }
+
     /** Dismisses the panel. */
     fun close() {
+        clearTimers()
         visibility = GONE
     }
 

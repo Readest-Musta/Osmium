@@ -30,18 +30,34 @@ object TextNav {
     fun lineStartLength(before: String): Int = before.length - before.lastIndexOf('\n') - 1
 
     /** UTF-16 half-open range [start, end) of the word around [cursor]; empty at a separator. */
-    fun wordRangeAround(text: String, cursor: Int): IntRange {
+    fun wordRangeAround(text: String, cursor: Int): IntRange = rangeAround(text, cursor, ::isSeparator)
+
+    /**
+     * Bangla-aware variant: the danda (।) and double danda (॥) sentence marks
+     * also end a word, so selecting a word in Bengali prose never swallows the
+     * punctuation that follows it.
+     */
+    fun wordRangeAroundBangla(text: String, cursor: Int): IntRange =
+        rangeAround(text, cursor) { cp ->
+            isSeparator(cp) || cp == 0x0964 || cp == 0x0965
+        }
+
+    private fun rangeAround(
+        text: String,
+        cursor: Int,
+        separator: (Int) -> Boolean,
+    ): IntRange {
         val pos = cursor.coerceIn(0, text.length)
         var start = pos
         while (start > 0) {
             val cp = text.codePointBefore(start)
-            if (isSeparator(cp)) break
+            if (separator(cp)) break
             start -= Character.charCount(cp)
         }
         var end = pos
         while (end < text.length) {
             val cp = text.codePointAt(end)
-            if (isSeparator(cp)) break
+            if (separator(cp)) break
             end += Character.charCount(cp)
         }
         return start..end

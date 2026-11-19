@@ -1,6 +1,7 @@
 package org.osmium.keyboard
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TextNavTest {
@@ -34,6 +35,14 @@ class TextNavTest {
     fun wordRangeAroundAtBoundary() {
         assertEquals(4..11, TextNav.wordRangeAround("ami banglay", 5))
         assertEquals(4..4, TextNav.wordRangeAround("ami  bang", 4))
+    }
+
+    @Test
+    fun wordRangeAroundBanglaStopsAtDanda() {
+        // "বাংলা" is 5 chars; the danda at index 5 must end the word.
+        assertEquals(0..5, TextNav.wordRangeAroundBangla("বাংলা।দ্বিতীয়", 2))
+        // Plain selection would include the danda and the following word.
+        assertTrue(TextNav.wordRangeAround("বাংলা।দ্বিতীয়", 2).last > 5)
     }
 
     @Test
