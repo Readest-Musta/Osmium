@@ -66,12 +66,15 @@ fn main() {
     // presence rather than top-1 so dictionary updates don't create false alarms,
     // but a missing word would be a real transliteration regression.
     let orth = OsRiti::new(dir.clone(), user_dir.to_string(), "avro_phonetic".to_string());
-    for (roman, expected) in [
-        ("ami", "আমি"),
-        ("bangla", "বাংলা"),
-        ("banglay", "বাংলায়"),
-        ("gai", "গাই"),
-    ] {
+    // A few words have two accepted spellings (য / য়); riti picks one, so list
+    // both rather than encoding a dictionary preference as a "correctness" test.
+    let cases: &[(&str, &[&str])] = &[
+        ("ami", &["আমি"]),
+        ("bangla", &["বাংলা"]),
+        ("banglay", &["বাংলায়", "বাংলায়"]),
+        ("gai", &["গাই"]),
+    ];
+    for &(roman, accepted) in cases {
         orth.finish_session();
         let mut state = None;
         for c in roman.chars() {
@@ -81,8 +84,8 @@ fn main() {
         }
         let state = state.expect("non-empty romanised word");
         assert!(
-            state.candidates.iter().any(|c| c == expected),
-            "'{roman}' should offer '{expected}', got {:?}",
+            state.candidates.iter().any(|c| accepted.contains(&c.as_str())),
+            "'{roman}' should offer one of {accepted:?}, got {:?}",
             state.candidates.iter().take(5).collect::<Vec<_>>()
         );
         orth.candidate_committed(0);
