@@ -403,7 +403,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
      * timers) so no panel can reopen in a stale state.
      */
     private fun setPanelState(state: PanelState) {
-        if (state == PanelState.NONE && panelState != PanelState.NONE) {
+        // Clear transient state whenever a panel is left, including a direct
+        // panel→panel switch (e.g. emoji→numeric on a new field), not just on
+        // the way back to NONE.
+        if (panelState != PanelState.NONE && state != panelState) {
             emojiPanel?.clearSearch()
             navigationPanel?.clearTimers()
         }
