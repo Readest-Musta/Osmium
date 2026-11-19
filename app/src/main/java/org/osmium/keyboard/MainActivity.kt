@@ -185,13 +185,15 @@ class MainActivity : Activity() {
      * restricted on newer Android versions, so failure means "unknown" (we show
      * the neutral switch prompt) rather than a crash.
      */
-    private fun isOsmiumDefault(): Boolean = try {
-        val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
-        val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-            ?: return false
-        current.equals(id, ignoreCase = true)
-    } catch (_: Throwable) {
-        false
+    private fun isOsmiumDefault(): Boolean {
+        return try {
+            val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
+            val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+                ?: return false
+            current.equals(id, ignoreCase = true)
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     /** Reflects real setup progress instead of showing the same two static buttons. */
