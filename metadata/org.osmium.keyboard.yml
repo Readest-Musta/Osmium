@@ -22,9 +22,9 @@ Description: |
 RepoType: git
 Repo: https://github.com/Readest-Musta/Osmium
 Builds:
-  - versionName: 0.1.17
-    versionCode: 117
-    commit: v0.1.17
+  - versionName: 0.1.18
+    versionCode: 118
+    commit: v0.1.18
     gradle:
       - assembleRelease
     output: app/build/outputs/apk/release/app-release-unsigned.apk
