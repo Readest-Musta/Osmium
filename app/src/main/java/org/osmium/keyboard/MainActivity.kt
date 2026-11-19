@@ -479,29 +479,37 @@ class MainActivity : Activity() {
     /** Custom keyboard layouts: import + selection. */
     private fun buildLayoutsSection() {
         add(header("Keyboard layouts"))
-        add(note("The প্ (fixed) mode uses the selected layout. Import any OpenBangla layout JSON file — " +
-                "it must contain Key_X_Normal entries. Long-press popups, AltGr layer and labels are derived from it."))
+        add(note("The প্ (fixed) mode uses the selected layout: bundled Probhat or National Jatiya, " +
+                "or any imported OpenBangla layout JSON (Key_X_Normal entries). Long-press popups, " +
+                "AltGr layer and labels are derived from it."))
 
         val layouts = Prefs.installedLayouts(this)
         val selected = Prefs.selectedLayout(this)
+        val idToName = mutableMapOf<Int, String>()
         val group = RadioGroup(this).apply {
             orientation = RadioGroup.VERTICAL
             setPadding(pad, 0, pad, 0)
-            addView(RadioButton(this@MainActivity).apply {
-                this.text = "প্রভাত (bundled)"
-                id = 4100
-                isChecked = selected == "probhat"
-            })
-            layouts.forEachIndexed { i, name ->
+            val bundled = listOf("probhat" to "প্রভাত (bundled)", "jatiya" to "জাতীয় / National (bundled)")
+            bundled.forEachIndexed { i, (name, label) ->
+                val id = 4100 + i
+                idToName[id] = name
                 addView(RadioButton(this@MainActivity).apply {
-                    this.text = name.removeSuffix(".json")
-                    id = 4101 + i
+                    text = label
+                    this.id = id
+                    isChecked = selected == name
+                })
+            }
+            layouts.forEachIndexed { i, name ->
+                val id = 4100 + bundled.size + i
+                idToName[id] = name
+                addView(RadioButton(this@MainActivity).apply {
+                    text = name.removeSuffix(".json")
+                    this.id = id
                     isChecked = selected == name
                 })
             }
             setOnCheckedChangeListener { _, checkedId ->
-                val name = if (checkedId == 4100) "probhat"
-                else layouts.getOrNull(checkedId - 4101) ?: return@setOnCheckedChangeListener
+                val name = idToName[checkedId] ?: return@setOnCheckedChangeListener
                 Prefs.setSelectedLayout(this@MainActivity, name)
             }
         }

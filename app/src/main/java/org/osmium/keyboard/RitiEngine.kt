@@ -38,10 +38,11 @@ class RitiEngine(private val context: Context) {
     companion object {
         private const val ASSET_DIR = "riti"
         private val DATA_FILES = listOf(
-            "dictionary.json", "autocorrect.json", "suffix.json", "Probhat.json"
+            "dictionary.json", "autocorrect.json", "suffix.json", "Probhat.json",
+            "National_Jatiya.json",
         )
         /** Bump whenever bundled riti assets change so upgrades re-copy them. */
-        const val DATA_VERSION = "v1"
+        const val DATA_VERSION = "v2"
         private const val VERSION_FILE = ".version"
 
         /**

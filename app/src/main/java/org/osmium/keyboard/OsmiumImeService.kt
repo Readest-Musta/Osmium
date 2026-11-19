@@ -1203,19 +1203,26 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         KeyboardMode.ENGLISH -> null
     }
 
-    /** Path to the selected fixed layout file (bundled Probhat or imported). */
+    /** Path to the selected fixed layout file (bundled Probhat/Jatiya or imported). */
     private fun selectedLayoutPath(): String {
         RitiEngine.ensureData(this)
         val name = Prefs.selectedLayout(this)
+        val bundled = when (name) {
+            "probhat" -> "Probhat.json"
+            "jatiya" -> "National_Jatiya.json"
+            else -> null
+        }
+        if (bundled != null) return File(filesDir, "riti/$bundled").absolutePath
         val custom = File(Prefs.layoutsDir(this), name)
-        return if (name != "probhat" && custom.exists()) custom.absolutePath
+        return if (custom.exists()) custom.absolutePath
         else File(filesDir, "riti/Probhat.json").absolutePath
     }
 
     /** Selected layout display name, or null for the bundled Probhat. */
-    private fun selectedLayoutName(): String? {
-        val name = Prefs.selectedLayout(this)
-        return if (name == "probhat") null else name.removeSuffix(".json")
+    private fun selectedLayoutName(): String? = when (Prefs.selectedLayout(this)) {
+        "probhat" -> null
+        "jatiya" -> "জাতীয়"
+        else -> Prefs.selectedLayout(this).removeSuffix(".json")
     }
 
     private fun launchSetup() {
