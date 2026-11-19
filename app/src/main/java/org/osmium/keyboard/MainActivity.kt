@@ -76,6 +76,7 @@ class MainActivity : Activity() {
             val pad = (16 * resources.displayMetrics.density).toInt()
             setPadding(0, pad, 0, pad)
         }
+        buildAppBar()
         buildPrivacyCard()
         buildSetupSection()
         add(TextView(this).apply {
@@ -240,6 +241,23 @@ class MainActivity : Activity() {
             addView(valueLabel)
             addView(bar)
         }
+    }
+
+    /** Gives the settings screen an identity — it currently opens as an anonymous list. */
+    private fun buildAppBar() {
+        add(TextView(this).apply {
+            text = "Osmium  🔘  ·  ওসমিয়াম"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFFE8EAF0.toInt())
+            setPadding(pad, pad / 2, pad, 0)
+        })
+        add(TextView(this).apply {
+            text = "Privacy-first Bengali keyboard · v${BuildConfig.VERSION_NAME}"
+            textSize = 12f
+            setTextColor(0xFF9AA0B0.toInt())
+            setPadding(pad, 0, pad, pad / 2)
+        })
     }
 
     /** Puts the project's strongest differentiator front and centre. */
