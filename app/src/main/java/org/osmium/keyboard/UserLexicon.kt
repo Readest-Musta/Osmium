@@ -114,7 +114,13 @@ object UserLexicon {
             val bi = root.optJSONObject("bigrams") ?: return state
             for (k in bi.keys()) {
                 val row = bi.getJSONObject(k)
-                state.bigrams[k] = row.keys().associateWith { row.getInt(it) }.toMutableMap()
+                val decoded = mutableMapOf<String, Int>()
+                val keys = row.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    decoded[key] = row.getInt(key)
+                }
+                state.bigrams[k] = decoded
             }
             val w = root.optJSONArray("weights") ?: return state
             for (i in state.weights.indices) state.weights[i] = w.optDouble(i, 0.0).toFloat().coerceIn(-1f, 1f)
