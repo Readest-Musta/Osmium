@@ -1231,9 +1231,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 val before = currentInputConnection
                     ?.getTextBeforeCursor(composed.length.coerceAtMost(128), 0)?.toString()
                 if (!EditorCompat.composingStuck(before, composed)) {
-                    clearComposition(currentInputConnection ?: return@postDelayed)
-                    directCommitMode = true
-                    render(latest)
+                    val ic = currentInputConnection ?: return@postDelayed
+                    ic.beginBatchEdit()
+                    try {
+                        ic.setComposingText("", 1)
+                        ic.finishComposingText()
+                        directCommitMode = true
+                        directCommitLength = composed.length
+                        ic.commitText(composed, 1)
+                    } finally {
+                        ic.endBatchEdit()
+                    }
+                    lastComposed = null
                 }
             }
         }, 150)
