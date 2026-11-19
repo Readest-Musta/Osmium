@@ -245,6 +245,26 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         }
     }
 
+    /** Live key rectangles for the native glide decoder (local coordinates). */
+    fun glideKeys(): List<GlideKey> {
+        val selfLoc = IntArray(2).also { getLocationOnScreen(it) }
+        val loc = IntArray(2)
+        val out = mutableListOf<GlideKey>()
+        for (key in keys) {
+            val code = key.tag as? String ?: continue
+            if (code.length != 1 || code[0] !in 'a'..'z' && code[0] !in '0'..'9') continue
+            key.getLocationOnScreen(loc)
+            out += GlideKey(
+                code = code,
+                cx = loc[0] - selfLoc[0] + key.width / 2f,
+                cy = loc[1] - selfLoc[1] + key.height / 2f,
+                halfW = key.width / 2f,
+                halfH = key.height / 2f,
+            )
+        }
+        return out
+    }
+
     /** Finds a letter/digit key beneath screen-absolute coordinates. */
     private fun charKeyAt(rawX: Float, rawY: Float): View? {
         val loc = IntArray(2)
