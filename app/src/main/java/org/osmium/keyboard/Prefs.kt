@@ -241,6 +241,14 @@ object Prefs {
         sp(context).edit().putBoolean(KEY_TOOL_CLIP, value).apply()
     }
 
+    /** Splits the letter rows into two thumb-reachable halves with a centre gap. */
+    fun splitKeyboard(context: Context): Boolean =
+        sp(context).getBoolean(KEY_SPLIT_KEYBOARD, false)
+
+    fun setSplitKeyboard(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_SPLIT_KEYBOARD, value).apply()
+    }
+
     /** One-handed keyboard dock: "off" | "left" | "right". */
     fun oneHandedMode(context: Context): String {
         val raw = sp(context).getString(KEY_ONE_HANDED, "off") ?: "off"
@@ -407,6 +415,7 @@ object Prefs {
     private const val KEY_C_BAR = "custom_color_bar"
     private const val KEY_C_PANEL = "custom_color_panel"
     private const val KEY_CLIPBOARD = "clipboard_items"
+    private const val KEY_SPLIT_KEYBOARD = "split_keyboard"
     private const val KEY_ONE_HANDED = "one_handed_mode"
     private const val KEY_TOOL_CLIP = "toolbar_clipboard"
     private const val KEY_TOOL_SYMBOLS = "toolbar_symbols"

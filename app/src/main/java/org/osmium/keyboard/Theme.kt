@@ -129,5 +129,6 @@ object Theme {
         append(':').append(Prefs.showSettingsButton(context))
         append(':').append(Prefs.showNavButton(context))
         append(':').append(Prefs.oneHandedMode(context))
+        append(':').append(Prefs.splitKeyboard(context))
     }
 }

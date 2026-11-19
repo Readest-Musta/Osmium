@@ -275,7 +275,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     private fun buildRow(codes: List<String>, digitRow: Boolean = false): LinearLayout {
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        for (code in codes) {
+        val splitAt = if (!digitRow && Prefs.splitKeyboard(context)) {
+            SplitLayout.splitIndex(codes.size)
+        } else -1
+        for ((index, code) in codes.withIndex()) {
             val key = OsmiumKey(context, OsmiumKeyKind.CHAR)
             key.tag = code
             attachKeyTouch(key, code, digitRow)
@@ -285,6 +288,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                     setMargins(dp(2), dp(4), dp(2), dp(2))
                 }
             )
+            if (index == splitAt - 1) {
+                row.addView(View(context), LinearLayout.LayoutParams(dp(12), dp(keyHeightDp)))
+            }
         }
         return row
     }
