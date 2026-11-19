@@ -12,7 +12,9 @@ object EditorCompat {
 
     fun needsDirectCommit(packageName: String?, inputType: Int): Boolean {
         if (packageName in DIRECT_COMMIT_PACKAGES) return true
-        return (inputType and 0x00000fff) == VARIATION_WEB_EDIT_TEXT
+        // TYPE_MASK_VARIATION includes the low class bits; strip them.
+        val variation = inputType and 0x00000fff and 0xFFFFFFF0.toInt()
+        return variation == VARIATION_WEB_EDIT_TEXT
     }
 
     /** True when [beforeCursor] actually contains the composing text we set. */
