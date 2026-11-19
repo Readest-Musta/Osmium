@@ -3,6 +3,7 @@ package org.osmium.keyboard
 import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
+import java.util.UUID
 
 /**
  * User preferences for Osmium. Stored locally only — no sync, no analytics.
@@ -190,46 +191,36 @@ object Prefs {
     // Clipboard history (local only)
     // ------------------------------------------------------------------
 
-    /** Clipboard history: list of (text, pinned), newest first. */
-    fun clipboardItems(context: Context): List<ClipboardItem> {
-        val raw = sp(context).getString(KEY_CLIPBOARD, "[]") ?: "[]"
-        return try {
-            val arr = org.json.JSONArray(raw)
-            (0 until arr.length()).mapNotNull { i ->
-                val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                ClipboardItem(text = o.optString("t"), pinned = o.optBoolean("p", false))
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    /** Clipboard history: each entry has a stable id, text, pin state and timestamp. */
+    fun clipboardItems(context: Context): List<ClipboardItem> =
+        ClipboardCodec.decode(sp(context).getString(KEY_CLIPBOARD, "[]") ?: "[]")
 
-    data class ClipboardItem(val text: String, val pinned: Boolean)
+    data class ClipboardItem(
+        val id: String,
+        val text: String,
+        val pinned: Boolean,
+        val at: Long,
+    )
 
-    /** Adds a copied text at the front (deduped). Trims history. */
+    /** Adds a copied text at the front (deduped, pin preserved). Trims history. */
     fun addClipboardItem(context: Context, text: String) {
-        val existing = clipboardItems(context)
-        val filtered = existing.filter { it.text != text }
-        val pinned = filtered.filter { it.pinned }.take(40)
-        val unpinned = listOf(ClipboardItem(text, false)) +
-                filtered.filter { !it.pinned }.take(CLIPBOARD_MAX - 1)
-        saveClipboard(context, pinned + unpinned)
+        saveClipboard(
+            context,
+            ClipboardCodec.add(clipboardItems(context), text, System.currentTimeMillis())
+        )
     }
 
-    fun toggleClipboardPin(context: Context, index: Int) {
-        val items = clipboardItems(context).toMutableList()
-        items.getOrNull(index)?.let {
-            items[index] = it.copy(pinned = !it.pinned)
-            saveClipboard(context, items)
-        }
+    /** Pin/unpin is keyed by the stable id, not by a positional index. */
+    fun toggleClipboardPin(context: Context, id: String) {
+        saveClipboard(
+            context,
+            clipboardItems(context).map { if (it.id == id) it.copy(pinned = !it.pinned) else it }
+        )
     }
 
-    fun removeClipboardItem(context: Context, index: Int) {
-        val items = clipboardItems(context).toMutableList()
-        if (index in items.indices) {
-            items.removeAt(index)
-            saveClipboard(context, items)
-        }
+    /** Deletion is keyed by the stable id, not by a positional index. */
+    fun removeClipboardItem(context: Context, id: String) {
+        saveClipboard(context, clipboardItems(context).filter { it.id != id })
     }
 
     fun clearClipboardHistory(context: Context) {
@@ -237,14 +228,8 @@ object Prefs {
     }
 
     private fun saveClipboard(context: Context, items: List<ClipboardItem>) {
-        val arr = org.json.JSONArray()
-        for (item in items.take(CLIPBOARD_MAX + 40)) {
-            arr.put(org.json.JSONObject().put("t", item.text).put("p", item.pinned))
-        }
-        sp(context).edit().putString(KEY_CLIPBOARD, arr.toString()).apply()
+        sp(context).edit().putString(KEY_CLIPBOARD, ClipboardCodec.encode(items)).apply()
     }
-
-    private const val CLIPBOARD_MAX = 30
 
     // ------------------------------------------------------------------
     // Suggestion-bar toolbar visibility
@@ -318,6 +303,17 @@ object Prefs {
         sp(context).edit().putString(KEY_EMOJI_RECENTS, list.take(24).joinToString("\n")).apply()
     }
 
+    /** Recently used symbols (newest first) — kept separate from emoji recents. */
+    fun symbolRecents(context: Context): List<String> {
+        val raw = sp(context).getString(KEY_SYMBOL_RECENTS, null) ?: return emptyList()
+        return raw.split("\n").filter { it.isNotBlank() }
+    }
+
+    fun addSymbolRecent(context: Context, symbol: String) {
+        val list = listOf(symbol) + symbolRecents(context).filter { it != symbol }
+        sp(context).edit().putString(KEY_SYMBOL_RECENTS, list.take(24).joinToString("\n")).apply()
+    }
+
     // ------------------------------------------------------------------
     // Backup: export / import the whole preference file as JSON
     // ------------------------------------------------------------------
@@ -371,6 +367,7 @@ object Prefs {
     private const val KEY_HAPTIC_STRENGTH = "haptic_strength"
     private const val KEY_INCOGNITO = "incognito_by_default"
     private const val KEY_EMOJI_RECENTS = "emoji_recents"
+    private const val KEY_SYMBOL_RECENTS = "symbol_recents"
     private const val KEY_LONG_PRESS_MS = "long_press_ms"
     private const val KEY_REPEAT_MS = "backspace_repeat_ms"
     private const val KEY_DOUBLE_SPACE = "double_space_dari"
@@ -400,4 +397,87 @@ object Prefs {
     private const val KEY_TOOL_NAV = "toolbar_nav"
     private const val KEY_LAYOUT = "selected_layout"
     private const val KEY_PREVIOUS_LAYOUT = "previous_layout"
+}
+
+/**
+ * Pure clipboard persistence codec — Android-free so it can be unit-tested on
+ * the JVM. [Prefs] delegates all history reads/writes here.
+ *
+ * JSON layout: `[{"id":..., "t":..., "p":..., "at":...}]`. Legacy entries
+ * (only `t`/`p`) are migrated on read: they get deterministic UUIDs derived
+ * from their position and text, plus synthetic timestamps that preserve the
+ * stored newest-first order. Nothing is dropped, so a migration can never lose
+ * clipboard data; the new fields are persisted on the next write.
+ */
+object ClipboardCodec {
+    const val MAX = 30
+    private const val PINNED_ALLOWANCE = 40
+
+    fun decode(raw: String): List<Prefs.ClipboardItem> {
+        val arr = try {
+            org.json.JSONArray(raw)
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val out = mutableListOf<Prefs.ClipboardItem>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val text = o.optString("t")
+            val pinned = o.optBoolean("p", false)
+            val storedId = o.optString("id")
+            val storedAt = o.optLong("at", 0L)
+            // Legacy rows have no id/at. Derive stable values from position +
+            // content so repeated reads produce identical ids (no data loss).
+            val id = storedId.takeIf { it.isNotBlank() }
+                ?: UUID.nameUUIDFromBytes("legacy:$i:$text".toByteArray(Charsets.UTF_8)).toString()
+            val at = if (storedAt != 0L) storedAt else (arr.length() - i).toLong()
+
+            // Store-level dedupe: one row per text. A pinned row wins over an
+            // unpinned duplicate so migration/persistence can never hide a pin.
+            val existing = out.indexOfFirst { it.text == text }
+            if (existing < 0) {
+                out += Prefs.ClipboardItem(id, text, pinned, at)
+            } else if (pinned && !out[existing].pinned) {
+                out[existing] = out[existing].copy(pinned = true)
+            }
+        }
+        return out
+    }
+
+    fun encode(items: List<Prefs.ClipboardItem>): String {
+        val arr = org.json.JSONArray()
+        for (item in items.take(MAX + PINNED_ALLOWANCE)) {
+            arr.put(
+                org.json.JSONObject()
+                    .put("id", item.id)
+                    .put("t", item.text)
+                    .put("p", item.pinned)
+                    .put("at", item.at)
+            )
+        }
+        return arr.toString()
+    }
+
+    /**
+     * Inserts (or re-copies) [text]. A re-copy dedupes against the existing row,
+     * keeping its id and pin but refreshing the timestamp; a new row gets a
+     * generated id. Pinned rows are persisted first, then newest-first.
+     */
+    fun add(
+        items: List<Prefs.ClipboardItem>,
+        text: String,
+        now: Long,
+        newId: () -> String = { UUID.randomUUID().toString() },
+    ): List<Prefs.ClipboardItem> {
+        val existing = items.firstOrNull { it.text == text }
+        val head = if (existing != null) {
+            existing.copy(at = now)
+        } else {
+            Prefs.ClipboardItem(newId(), text, pinned = false, at = now)
+        }
+        val all = listOf(head) + items.filter { it.text != text }
+        val pinned = all.filter { it.pinned }.take(PINNED_ALLOWANCE)
+        val unpinned = all.filter { !it.pinned }.take(MAX)
+        return (pinned + unpinned).take(MAX + PINNED_ALLOWANCE)
+    }
 }

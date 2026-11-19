@@ -321,6 +321,12 @@ object EmojiData {
         )
     )
 
+    /** Every symbol exposed under the SYMBOLS tab; used to split recents. */
+    val SYMBOL_ITEMS: Set<String> = SYMBOL_GROUPS.flatMap { it.items }.toSet()
+
+    /** True when [item] is one of the special-character symbols (not an emoji). */
+    fun isSymbol(item: String): Boolean = item in SYMBOL_ITEMS
+
     /** Lowercase keyword -> emoji/symbol strings. */
     val KEYWORDS: Map<String, List<String>> = mapOf(
         "smile" to listOf("😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂"),
@@ -465,38 +471,110 @@ object EmojiData {
     )
 
     /**
-     * Offline keyword search over [KEYWORDS], [EMOJI] and [SYMBOL_GROUPS].
-     *
-     * Blank queries return an empty list. Otherwise the query is trimmed and
-     * lowercased, then items from keyword entries whose key contains the query
-     * are collected, followed by items whose own text contains the query.
-     * Duplicates are removed preserving first-seen order and the result is
-     * capped at 200 entries.
+     * Bengali aliases so queries typed with the on-screen Bengali keyboard find
+     * the right emoji/symbols. Merged with [KEYWORDS] at search time.
      */
-    fun search(query: String): List<String> {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) return emptyList()
+    val BENGALI_KEYWORDS: Map<String, List<String>> = mapOf(
+        "হাসি" to listOf("😀", "😃", "😄", "😁", "😂", "🤣", "🙂", "😊", "😹"),
+        "কান্না" to listOf("😢", "😭", "🥺", "😔", "😪"),
+        "প্রেম" to listOf("❤", "💕", "💞", "💓", "😍", "😘", "😻"),
+        "হৃদয়" to listOf("❤", "🧡", "💛", "💚", "💙", "💜", "🖤", "💔"),
+        "টাকা" to listOf("৳", "💵", "💲"),
+        "অর্থ" to listOf("৳", "💵", "💰", "💲"),
+        "সূর্য" to listOf("☀", "🌞", "🌅"),
+        "চাঁদ" to listOf("🌙", "🌝", "🌚", "🌛"),
+        "আগুন" to listOf("🔥", "🧨"),
+        "ফুল" to listOf("🌸", "🌺", "🌻", "🌷", "🌹", "💐"),
+        "বিড়াল" to listOf("🐱", "😺", "🐈"),
+        "কুকুর" to listOf("🐶", "🐕", "🐩"),
+        "বাংলাদেশ" to listOf("🇧🇩"),
+        "বাংলা" to listOf("🇧🇩") + (SYMBOL_GROUPS.first { it.id == "bangla" }.items),
+        "খেলা" to listOf("⚽", "🏀", "🎮", "🎲"),
+        "তারা" to listOf("★", "☆", "⭐", "✨"),
+        "ধন্যবাদ" to listOf("🙏"),
+        "হ্যাঁ" to listOf("✅", "✔"),
+        "না" to listOf("❌", "✖")
+    )
 
-        val results = LinkedHashSet<String>()
+    // ------------------------------------------------------------------
+    // Ranked, multi-token offline search
+    // ------------------------------------------------------------------
 
-        for ((keyword, items) in KEYWORDS) {
-            if (keyword.contains(q)) {
-                results.addAll(items)
+    private const val VS16 = "\uFE0F" // variation selector-16
+    private const val ZWJ = "\u200D"  // zero-width joiner
+
+    /** Case-folds and strips VS16/ZWJ so decorated emoji still match plain queries. */
+    fun normalize(s: String): String = s.lowercase().replace(VS16, "").replace(ZWJ, "")
+
+    /** One searchable item together with all of its (English + Bengali) keywords. */
+    data class SearchEntry(val text: String, val keywords: List<String>)
+
+    /**
+     * Ranks [entries] against [tokens] (already split on whitespace). Every
+     * token must match somewhere — a keyword, or the item's own text — otherwise
+     * the entry is dropped (AND semantics). Per token the best match scores:
+     * exact keyword 5, keyword prefix 4, keyword substring 3, text substring 1.
+     * Scores are summed across tokens; ties keep first-seen order. Results are
+     * deduplicated and capped at 200.
+     */
+    fun rank(tokens: List<String>, entries: List<SearchEntry>): List<String> {
+        val normTokens = tokens.map { normalize(it) }.filter { it.isNotEmpty() }
+        if (normTokens.isEmpty()) return emptyList()
+
+        val bestByText = LinkedHashMap<String, Int>()
+        for (entry in entries) {
+            val text = normalize(entry.text)
+            val keywords = entry.keywords.map { normalize(it) }
+            var total = 0
+            var matchesAll = true
+            for (token in normTokens) {
+                var best = 0
+                for (kw in keywords) {
+                    val score = when {
+                        kw == token -> 5
+                        kw.startsWith(token) -> 4
+                        kw.contains(token) -> 3
+                        else -> 0
+                    }
+                    if (score > best) best = score
+                }
+                if (best == 0 && text.contains(token)) best = 1
+                if (best == 0) {
+                    matchesAll = false
+                    break
+                }
+                total += best
             }
+            if (!matchesAll) continue
+            val prev = bestByText[entry.text]
+            if (prev == null || total > prev) bestByText[entry.text] = total
         }
-
-        for (items in EMOJI.values) {
-            for (item in items) {
-                if (item.lowercase().contains(q)) results.add(item)
-            }
-        }
-
-        for (group in SYMBOL_GROUPS) {
-            for (item in group.items) {
-                if (item.lowercase().contains(q)) results.add(item)
-            }
-        }
-
-        return results.take(200)
+        return bestByText.entries
+            .sortedByDescending { it.value }
+            .map { it.key }
+            .take(200)
     }
+
+    /** Keyword index over all datasets, built once and shared by [search]. */
+    private val searchEntries: List<SearchEntry> by lazy {
+        val keywords = LinkedHashMap<String, MutableList<String>>()
+        fun add(keyword: String, items: List<String>) {
+            keywords.getOrPut(normalize(keyword)) { mutableListOf() }.addAll(items)
+        }
+        for ((keyword, items) in KEYWORDS) add(keyword, items)
+        for ((keyword, items) in BENGALI_KEYWORDS) add(keyword, items)
+
+        val byText = LinkedHashMap<String, MutableList<String>>()
+        for ((keyword, items) in keywords) {
+            for (item in items) byText.getOrPut(item) { mutableListOf() }.add(keyword)
+        }
+        // Items with no keyword are still findable by their own glyph.
+        for (items in EMOJI.values) for (item in items) byText.getOrPut(item) { mutableListOf() }
+        for (group in SYMBOL_GROUPS) for (item in group.items) byText.getOrPut(item) { mutableListOf() }
+        byText.map { (text, kws) -> SearchEntry(text, kws) }
+    }
+
+    /** Offline ranked search. Blank queries return an empty list. */
+    fun search(query: String): List<String> =
+        rank(query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }, searchEntries)
 }
