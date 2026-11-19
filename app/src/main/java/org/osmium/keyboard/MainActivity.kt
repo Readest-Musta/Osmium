@@ -198,8 +198,39 @@ class MainActivity : Activity() {
         setPadding(pad, pad, pad, pad / 4)
     }
 
+    /** When non-null, newly added views go inside this card instead of the root. */
+    private var cardHost: LinearLayout? = null
+
     private fun add(v: View) {
-        root.addView(v)
+        (cardHost ?: root).addView(v)
+    }
+
+    /** Starts a themed card with a compact title. Pair with [endCard]. */
+    private fun beginCard(title: String) {
+        val pal = Theme.palette(this)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(pal.panelBg)
+                cornerRadius = 16f * resources.displayMetrics.density
+            }
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        root.addView(card, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(pad, pad / 3, pad, 0) })
+        cardHost = card
+        add(TextView(this).apply {
+            text = title.uppercase()
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(pal.accent)
+            setPadding(0, 0, 0, pad / 3)
+        })
+    }
+
+    private fun endCard() {
+        cardHost = null
     }
 
     private fun switchSetting(text: String, current: Boolean, onChange: (Boolean) -> Unit): Switch =
@@ -298,7 +329,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildSetupSection() {
-        add(header("Setup"))
+        beginCard("Setup")
         val enable = Button(this).apply {
             setOnClickListener { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
         }
@@ -334,10 +365,11 @@ class MainActivity : Activity() {
             }
         }
         add(radioGroup)
+        endCard()
     }
 
     private fun buildAppearanceSection() {
-        add(header("Appearance"))
+        beginCard("Appearance")
         add(label("Keyboard theme:"))
         val themeGroup = RadioGroup(this).apply {
             orientation = RadioGroup.HORIZONTAL
@@ -446,10 +478,11 @@ class MainActivity : Activity() {
         add(bgRow)
         add(sliderSetting("Background darkening", 0, 90, Prefs.bgImageDim(this),
             { "$it%" }, { Prefs.setBgImageDim(this, it) }))
+        endCard()
     }
 
     private fun buildBehaviourSection() {
-        add(header("Behaviour"))
+        beginCard("Behaviour")
         add(switchSetting("Key press vibration", Prefs.hapticsEnabled(this),
             { Prefs.setHapticsEnabled(this, it) }))
         add(sliderSetting("Vibration length", 2, 40, Prefs.hapticMs(this),
@@ -474,11 +507,12 @@ class MainActivity : Activity() {
             { Prefs.setSwipeDeleteEnabled(this, it) }))
         add(sliderSetting("Swipe distance for word delete", 30, 100, Prefs.swipeStepDp(this),
             { "${it}dp" }, { Prefs.setSwipeStepDp(this, it) }))
+        endCard()
     }
 
     /** Custom keyboard layouts: import + selection. */
     private fun buildLayoutsSection() {
-        add(header("Keyboard layouts"))
+        beginCard("Keyboard layouts")
         add(note("The প্ (fixed) mode uses the selected layout: bundled Probhat or National Jatiya, " +
                 "or any imported OpenBangla layout JSON (Key_X_Normal entries). Long-press popups, " +
                 "AltGr layer and labels are derived from it."))
@@ -562,6 +596,7 @@ class MainActivity : Activity() {
                 }
             })
         }
+        endCard()
     }
 
     /**
@@ -613,7 +648,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildBackupSection() {
-        add(header("Backup"))
+        beginCard("Backup")
         val export = Button(this).apply {
             text = "Export all settings to a file"
             setOnClickListener {
@@ -644,6 +679,7 @@ class MainActivity : Activity() {
         add(advanced)
         add(note("Full control: every Osmium preference is a JSON key here. Edit values, save, and " +
                 "reopen the keyboard. Invalid values are ignored."))
+        endCard()
     }
 
     /** Power-user raw preference editor. */
@@ -674,7 +710,7 @@ class MainActivity : Activity() {
     }
 
     private fun buildDiagnosticsSection() {
-        add(header("Diagnostics"))
+        beginCard("Diagnostics")
         val diagView = TextView(this).apply {
             textSize = 13f
             setTextIsSelectable(true)
@@ -711,6 +747,7 @@ class MainActivity : Activity() {
             "Learning happens only on this device — your typing never leaves your phone, and " +
             "incognito mode turns it off completely. Osmium has no internet permission."
         ))
+        endCard()
     }
 
     // ------------------------------------------------------------------
