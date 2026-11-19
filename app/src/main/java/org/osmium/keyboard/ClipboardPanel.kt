@@ -1,11 +1,13 @@
 package org.osmium.keyboard
 
+import android.app.AlertDialog
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -23,6 +25,7 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
     var onPaste: ((String) -> Unit)? = null
 
     private val listHost: LinearLayout
+    private val searchBox: EditText
     private val clearButton: TextView
     private val noteView: TextView
     /** Incognito: pasting is allowed, but nothing is recorded or modified. */
@@ -31,6 +34,22 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
     init {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(Theme.palette(context).panelBg)
+
+        searchBox = EditText(context).apply {
+            hint = "Search clipboard"
+            setSingleLine(true)
+            textSize = 13f
+            setTextColor(Theme.palette(context).keyText)
+            setHintTextColor(Theme.palette(context).keyTextHint)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: android.text.Editable?) = refresh()
+            })
+        }
+        addView(searchBox, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -118,7 +137,39 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
 
             isClickable = true
             setOnClickListener { onPaste?.invoke(item.text) }
+            setOnLongClickListener {
+                AlertDialog.Builder(context)
+                    .setTitle("Clipboard entry")
+                    .setMessage(item.text)
+                    .setPositiveButton("Paste") { _, _ -> onPaste?.invoke(item.text) }
+                    .setNegativeButton("Close", null)
+                    .show()
+                true
+            }
         }
+    }
+
+    /** True while the search field has focus; on-screen keys then edit the query. */
+    fun isSearchFocused(): Boolean = searchBox.hasFocus()
+
+    fun appendSearch(text: String) {
+        searchBox.append(text)
+    }
+
+    fun backspaceSearch() {
+        searchBox.text?.let { editable ->
+            if (editable.isNotEmpty()) editable.delete(editable.length - 1, editable.length)
+        }
+    }
+
+    fun focusSearch() {
+        searchBox.requestFocus()
+    }
+
+    fun clearSearch() {
+        searchBox.text?.clear()
+        searchBox.clearFocus()
+        refresh()
     }
 
     /** Switches between editable history and incognito's paste-only view. */
@@ -136,13 +187,16 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
             noteView.text = "Incognito: paste-only. Nothing you copy now is saved here."
         }
         listHost.removeAllViews()
-        val items = Prefs.clipboardItems(context)
+        val query = searchBox.text?.toString().orEmpty().trim()
+        val all = Prefs.clipboardItems(context)
+        val items = if (query.isEmpty()) all
+        else all.filter { it.text.contains(query, ignoreCase = true) }
         if (items.isEmpty()) {
             listHost.addView(TextView(context).apply {
-                text = if (readOnly) {
-                    "Nothing to paste yet.\nCopied text is not recorded while incognito is on."
-                } else {
-                    "Nothing copied yet.\nCopy text anywhere — it will show up here (stored only on this device)."
+                text = when {
+                    query.isNotEmpty() -> "No clipboard entries match \"$query\"."
+                    readOnly -> "Nothing to paste yet.\nCopied text is not recorded while incognito is on."
+                    else -> "Nothing copied yet.\nCopy text anywhere — it will show up here (stored only on this device)."
                 }
                 textSize = 13f
                 setTextColor(Theme.palette(context).keyTextHint)

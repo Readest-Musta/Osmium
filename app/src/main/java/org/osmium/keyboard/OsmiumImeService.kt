@@ -509,6 +509,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // the way back to NONE.
         if (panelState != PanelState.NONE && state != panelState) {
             emojiPanel?.clearSearch()
+            clipboardPanel?.clearSearch()
             navigationPanel?.clearTimers()
         }
         panelState = state
@@ -523,11 +524,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun emojiSearchActive(): Boolean =
         panelState == PanelState.EMOJI && emojiPanel?.isSearchFocused() == true
 
+    /** True while the clipboard search box owns the on-screen keys. */
+    private fun clipboardSearchActive(): Boolean =
+        panelState == PanelState.CLIPBOARD && clipboardPanel?.isSearchFocused() == true
+
     private fun toggleClipboardPanel() = guarded {
         haptic()
         val clip = clipboardPanel ?: return@guarded
         val opening = panelState != PanelState.CLIPBOARD
-        if (opening) clip.refresh()
+        if (opening) {
+            clip.refresh()
+            clip.focusSearch()
+        }
         setPanelState(if (opening) PanelState.CLIPBOARD else PanelState.NONE)
     }
 
@@ -561,6 +569,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // instead of committing the character to the app's text field.
         if (emojiSearchActive()) {
             emojiPanel?.appendSearch(char)
+            return@guarded
+        }
+        if (clipboardSearchActive()) {
+            clipboardPanel?.appendSearch(char)
             return@guarded
         }
         val modifier = if (altgr) MODIFIER_ALT_GR else 0
@@ -638,6 +650,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         haptic()
         if (emojiSearchActive()) {
             emojiPanel?.appendSearch(" ")
+            return@guarded
+        }
+        if (clipboardSearchActive()) {
+            clipboardPanel?.appendSearch(" ")
             return@guarded
         }
         val ic = currentInputConnection ?: return@guarded
@@ -753,6 +769,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         resetDoubleSpace()
         if (emojiSearchActive()) {
             emojiPanel?.backspaceSearch()
+            return@guarded
+        }
+        if (clipboardSearchActive()) {
+            clipboardPanel?.backspaceSearch()
             return@guarded
         }
         val ic = currentInputConnection ?: return@guarded
