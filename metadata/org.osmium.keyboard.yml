@@ -1,5 +1,5 @@
 # F-Droid metadata skeleton for Osmium.
-# The v0.1.15 tag and release are created by the controller after hash
+# The v0.1.16 tag and release are created by the controller after hash
 # verification; this file is intentionally local-only until then.
 Categories:
   - Writing
@@ -41,6 +41,6 @@ MaintainerNotes: |
   the build environment `assembleRelease` emits an unsigned APK, which is what
   F-Droid expects (F-Droid signs the artifact itself).
 
-  This metadata is a SKELETON: the v0.1.15 tag does not exist until the
+  This metadata is a SKELETON: the v0.1.16 tag does not exist until the
   controller publishes the release, and the build recipe has not been run by
   fdroidserver yet.
