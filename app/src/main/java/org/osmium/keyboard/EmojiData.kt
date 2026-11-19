@@ -496,6 +496,33 @@ object EmojiData {
         "না" to listOf("❌", "✖")
     )
 
+    /**
+     * Romanised spellings of the Bengali aliases above. The on-screen keys insert
+     * ASCII into the search box in every mode, so these aliases are what a Bengali
+     * typist can actually type while the picker is open.
+     */
+    val ROMANIZED_BENGALI_KEYWORDS: Map<String, List<String>> = mapOf(
+        "hasi" to BENGALI_KEYWORDS.getValue("হাসি"),
+        "kanna" to BENGALI_KEYWORDS.getValue("কান্না"),
+        "prem" to BENGALI_KEYWORDS.getValue("প্রেম"),
+        "hridoy" to BENGALI_KEYWORDS.getValue("হৃদয়"),
+        "taka" to BENGALI_KEYWORDS.getValue("টাকা"),
+        "ortho" to BENGALI_KEYWORDS.getValue("অর্থ"),
+        "surjo" to BENGALI_KEYWORDS.getValue("সূর্য"),
+        "chand" to BENGALI_KEYWORDS.getValue("চাঁদ"),
+        "agun" to BENGALI_KEYWORDS.getValue("আগুন"),
+        "phul" to BENGALI_KEYWORDS.getValue("ফুল"),
+        "biral" to BENGALI_KEYWORDS.getValue("বিড়াল"),
+        "kukur" to BENGALI_KEYWORDS.getValue("কুকুর"),
+        "bangladesh" to BENGALI_KEYWORDS.getValue("বাংলাদেশ"),
+        "bangla" to BENGALI_KEYWORDS.getValue("বাংলা"),
+        "khela" to BENGALI_KEYWORDS.getValue("খেলা"),
+        "tara" to BENGALI_KEYWORDS.getValue("তারা"),
+        "dhonnobad" to BENGALI_KEYWORDS.getValue("ধন্যবাদ"),
+        "ha" to BENGALI_KEYWORDS.getValue("হ্যাঁ"),
+        "na" to BENGALI_KEYWORDS.getValue("না"),
+    )
+
     // ------------------------------------------------------------------
     // Ranked, multi-token offline search
     // ------------------------------------------------------------------
@@ -563,6 +590,7 @@ object EmojiData {
         }
         for ((keyword, items) in KEYWORDS) add(keyword, items)
         for ((keyword, items) in BENGALI_KEYWORDS) add(keyword, items)
+        for ((keyword, items) in ROMANIZED_BENGALI_KEYWORDS) add(keyword, items)
 
         val byText = LinkedHashMap<String, MutableList<String>>()
         for ((keyword, items) in keywords) {

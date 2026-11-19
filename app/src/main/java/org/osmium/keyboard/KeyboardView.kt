@@ -651,6 +651,7 @@ class KeyboardView(context: Context) : FrameLayout(context) {
     // ------------------------------------------------------------------
 
     private var popup: LinearLayout? = null
+    private var popupPointer: View? = null
     private var popupChips = mutableListOf<Pair<TextView, PopupEntry>>()
     private var highlightedChip = -1
 
@@ -715,9 +716,26 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         val left = (anchorCenterX - popupWidth / 2)
             .coerceIn(dp(2), (width - popupWidth - dp(2)).coerceAtLeast(dp(2)))
         lp.leftMargin = left
-        lp.topMargin = (anchorTop - popupHeight - dp(6)).coerceAtLeast(dp(2))
+        lp.topMargin = (anchorTop - popupHeight - dp(10)).coerceAtLeast(dp(2))
         addView(panel, lp)
         popup = panel
+
+        // A small rotated square under the panel points back at the key, so the
+        // popup reads as belonging to the pressed key rather than floating.
+        val pointerSize = dp(9)
+        val pointer = View(context).apply {
+            background = GradientDrawable().apply {
+                setColor(pal.popupBg)
+                setStroke(dp(1), pal.barBg)
+                cornerRadius = dp(2).toFloat()
+            }
+            rotation = 45f
+        }
+        val pp = FrameLayout.LayoutParams(pointerSize, pointerSize, Gravity.TOP or Gravity.START)
+        pp.leftMargin = (left + popupWidth / 2f - pointerSize / 2f).toInt()
+        pp.topMargin = lp.topMargin + popupHeight - pointerSize / 2
+        addView(pointer, pp)
+        popupPointer = pointer
         highlightedChip = -1
     }
 
@@ -784,7 +802,9 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
     private fun hidePopup() {
         popup?.let { removeView(it) }
+        popupPointer?.let { removeView(it) }
         popup = null
+        popupPointer = null
         popupChips = mutableListOf()
         highlightedChip = -1
     }

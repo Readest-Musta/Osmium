@@ -21,6 +21,13 @@ class EmojiDataTest {
     }
 
     @Test
+    fun romanizedBengaliAliasesAreSearchableWithAsciiKeys() {
+        val results = EmojiData.search("hasi")
+        assertTrue(results.contains("😀"))
+        assertTrue(EmojiData.search("taka").contains("৳"))
+    }
+
+    @Test
     fun searchIsCaseInsensitive() {
         assertEquals(EmojiData.search("star"), EmojiData.search("STAR"))
     }
