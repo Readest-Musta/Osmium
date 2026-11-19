@@ -1097,8 +1097,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // editor never observes a half-finished candidate commit.
         ic.beginBatchEdit()
         try {
-            // Replace the composing region with the picked candidate in one step.
-            ic.setComposingText(candidate, 1)
+            // commitText replaces the composing span reliably in all editors
+            // (setComposingText + finishComposingText fails in some, e.g. WhatsApp).
+            ic.commitText(candidate, 1)
             ic.finishComposingText()
             // `index` is a display index; tell riti its original index instead.
             engine.candidateCommitted(index, latest.originalIndices)
@@ -1162,10 +1163,12 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         try {
             val selected = latest.candidates.getOrNull(latest.selection) ?: ""
             if (selected.isNotEmpty()) {
-                // Replace the composing region with the final text in one step,
-                // then commit it (finishComposingText on stale text would
-                // duplicate it into the field).
-                ic.setComposingText(selected, 1)
+                // commitText() replaces the active composing span and is supported
+                // by every editor. setComposingText()+finishComposingText() is
+                // mishandled by some editors (notably WhatsApp): the candidate
+                // shows in our bar but an empty/stale span gets committed, so the
+                // word never appears. Clear any leftover composing span afterwards.
+                ic.commitText(selected, 1)
                 ic.finishComposingText()
                 // `latest.selection` is a display index; translate before riti.
                 engine.candidateCommitted(latest.selection, latest.originalIndices)
