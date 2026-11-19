@@ -232,6 +232,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             onNumberRowToggle = { keyboardView?.toggleNumberRow() }
             onSettingsTap = { launchSetup() }
             onClipboardToggle = { toggleClipboardPanel() }
+            onSymbolsToggle = { openSymbolsPanel() }
             onNavToggle = { onNavigationToggle() }
         }
 
@@ -359,7 +360,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (restarting && engine.isSessionActive()) commitCurrentCandidate()
         engine.setIncognito(incognito)
         suggestionBar?.setIncognito(incognito)
-        suggestionBar?.setClipboardEnabled(!incognito)
+        suggestionBar?.setClipboardReadOnly(incognito)
+        clipboardPanel?.setReadOnly(incognito)
         engine.finishSession()
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
@@ -402,7 +404,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Records newly copied text into the local clipboard history. */
     private fun captureClipboard() {
         val text = currentClipboardText() ?: return
-        if (incognito) {
+        if (!ClipboardAccess.canCapture(incognito)) {
             // Never persist clipboard content while incognito. Still remember
             // it so leaving incognito cannot retroactively backfill text that
             // was copied during the incognito session.
@@ -509,6 +511,28 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    /**
+     * A popup symbol riti cannot map (non-ASCII). Commit it as literal text through
+     * the same commit-first funnel used by emoji and clipboard, so a live Bengali
+     * composition is never overwritten.
+     */
+    override fun onSymbol(code: String) = guarded {
+        haptic()
+        insertTextSafely(code)
+    }
+
+    /** The popup's "more" chip: jump straight to the full Symbols picker. */
+    override fun onSymbolsRequested() = guarded {
+        haptic()
+        openSymbolsPanel()
+    }
+
+    private fun openSymbolsPanel() = guarded {
+        emojiPanel?.applyTheme()
+        emojiPanel?.showSymbols()
+        if (panelState != PanelState.EMOJI) setPanelState(PanelState.EMOJI)
+    }
+
     override fun onCandidateSelect(index: Int) = guarded {
         haptic()
         if (!engine.isSessionActive()) return@guarded
@@ -576,6 +600,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     override fun onCursorGlide(delta: Int) = guarded {
+        // B5: moving the selection while a riti session is live strands the
+        // composing span and the engine buffer. End the composition first, then
+        // move the cursor on committed text.
+        if (engine.isSessionActive()) commitCurrentCandidate()
         resetDoubleSpace()
         val ic = currentInputConnection ?: return@guarded
         val pos = cursorPosition(ic) ?: return@guarded

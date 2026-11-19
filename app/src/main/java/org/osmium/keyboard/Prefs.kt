@@ -241,6 +241,12 @@ object Prefs {
         sp(context).edit().putBoolean(KEY_TOOL_CLIP, value).apply()
     }
 
+    fun showSymbolsButton(context: Context): Boolean =
+        sp(context).getBoolean(KEY_TOOL_SYMBOLS, true)
+    fun setShowSymbolsButton(context: Context, value: Boolean) {
+        sp(context).edit().putBoolean(KEY_TOOL_SYMBOLS, value).apply()
+    }
+
     fun showNumberToggle(context: Context): Boolean =
         sp(context).getBoolean(KEY_TOOL_NUM, true)
     fun setShowNumberToggle(context: Context, value: Boolean) {
@@ -392,6 +398,7 @@ object Prefs {
     private const val KEY_C_PANEL = "custom_color_panel"
     private const val KEY_CLIPBOARD = "clipboard_items"
     private const val KEY_TOOL_CLIP = "toolbar_clipboard"
+    private const val KEY_TOOL_SYMBOLS = "toolbar_symbols"
     private const val KEY_TOOL_NUM = "toolbar_number"
     private const val KEY_TOOL_SET = "toolbar_settings"
     private const val KEY_TOOL_NAV = "toolbar_nav"

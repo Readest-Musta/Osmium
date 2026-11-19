@@ -30,8 +30,19 @@ import java.io.File
 /** Typing modes Osmium supports. */
 enum class KeyboardMode { ENGLISH, AVRO, PROBHAT }
 
-/** One long-press popup choice. */
-data class PopupEntry(val label: String, val code: String, val altgr: Boolean)
+/**
+ * One long-press popup choice.
+ *
+ * [direct] marks characters riti cannot map (non-ASCII). Those are committed as
+ * literal text by the service instead of being fed to the engine, which would drop
+ * them because `keycodeForChar()` returns 0.
+ */
+data class PopupEntry(
+    val label: String,
+    val code: String,
+    val altgr: Boolean,
+    val direct: Boolean = false,
+)
 
 /**
  * The main QWERTY-arranged keyboard view.
@@ -69,6 +80,10 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         fun onFeedback()
         /** Move the text cursor by `delta` codepoints (spacebar glide). */
         fun onCursorGlide(delta: Int)
+        /** Commit a literal symbol that riti cannot map (non-ASCII). */
+        fun onSymbol(code: String)
+        /** Open the full Symbols picker from a popup's "more" chip. */
+        fun onSymbolsRequested()
     }
 
     var listener: Listener? = null
@@ -291,6 +306,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                                 entries += PopupEntry(p2.n, ch, altgr = false)
                             }
                         }
+                        // Bengali modes get the same everyday symbol shortlist. Only
+                        // the direct (non-ASCII) entries are appended: ASCII ones are
+                        // already reachable above via the Probhat layout labels.
+                        entries += symbolPaletteFor(code).filter { it.direct }
+                            .map { PopupEntry(it.label, it.code, altgr = false, direct = true) }
                     }
                 }
                 entries
@@ -299,12 +319,20 @@ class KeyboardView(context: Context) : FrameLayout(context) {
                 if (digitRow) return emptyList()
                 when {
                     idx >= 0 -> listOf(PopupEntry(TOP_DIGITS[idx], TOP_DIGITS[idx], altgr = false))
-                    code == "." -> PUNCT_POPUP.map { PopupEntry(it, it, altgr = false) }
-                    code == "," -> COMMA_POPUP.map { PopupEntry(it, it, altgr = false) }
+                    code == "." || code == "," -> symbolPaletteFor(code).map {
+                        PopupEntry(it.label, it.code, altgr = false, direct = it.direct)
+                    }
                     else -> emptyList()
                 }
             }
         }
+    }
+
+    /** The curated symbol shortlist attached to the `.` / `,` keys. */
+    private fun symbolPaletteFor(code: String): List<SymbolEntry> = when (code) {
+        "." -> SymbolPalette.PERIOD
+        "," -> SymbolPalette.COMMA
+        else -> emptyList()
     }
 
     // ------------------------------------------------------------------
@@ -593,6 +621,8 @@ class KeyboardView(context: Context) : FrameLayout(context) {
 
         /** Slop (dp) for accepting a near-miss chip during popup slide-select. */
         const val POPUP_HIT_SLOP_DP = 4
+        /** Maximum chips per popup row; longer sets wrap into a grid. */
+        const val POPUP_COLUMNS = 8
 
         /** Vertical travel (dp) off the spacebar that cancels its nav long-press. */
         const val NAV_MOVE_CANCEL_DY_DP = 24
@@ -601,9 +631,6 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         const val BASE_CHAR_TEXT = 18f
         const val BASE_ACTION_TEXT = 16f
 
-        /** Extra characters offered on the punctuation keys (English/Avro). */
-        val PUNCT_POPUP = listOf("!", "?", ";", ":", "'", "\"")
-        val COMMA_POPUP = listOf("'", "\"", ":", ";", "!")
         /** Probhat: extra normal-layer chars reachable from '.' / ',' popups. */
         val PROBHAT_PUNCT_EXTRAS = mapOf(
             "." to listOf("!", "?", ":", ";"),
@@ -624,9 +651,17 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         // Never render blank chips: a missing label must not become a blank choice.
         val usable = entries.filter { it.label.isNotBlank() }
         if (usable.isEmpty()) return
-        val chipWidth = dp(42)
-        val popupWidth = usable.size * chipWidth + dp(10)
-        val popupHeight = dp(48)
+        // Short popups stay a single row; long ones become a grid so every chip
+        // remains a usable touch target instead of overflowing the screen.
+        val chipWidth = dp(44)
+        // Also cap by the actual view width so the grid never runs off-screen on
+        // small devices; never fewer than 3 columns to keep rows meaningful.
+        val byWidth = ((width - dp(16)) / chipWidth).coerceAtLeast(3)
+        val columns = minOf(POPUP_COLUMNS, usable.size, byWidth)
+        val rows = SymbolPalette.rows(usable, columns)
+        val chipHeight = dp(42)
+        val popupWidth = columns * chipWidth + dp(10)
+        val popupHeight = rows.size * chipHeight + dp(8)
 
         val locKey = IntArray(2).also { anchor.getLocationInWindow(it) }
         val locSelf = IntArray(2).also { this@KeyboardView.getLocationInWindow(it) }
@@ -634,25 +669,31 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         val anchorTop = locKey[1] - locSelf[1]
 
         val panel = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
                 setColor(pal.popupBg)
                 setStroke(dp(1), pal.barBg)
             }
             elevation = dp(4).toFloat()
-            setPadding(dp(5), dp(1), dp(5), dp(1))
+            setPadding(dp(5), dp(4), dp(5), dp(4))
         }
         popupChips = mutableListOf()
-        for (entry in usable) {
-            val chip = TextView(context).apply {
-                gravity = Gravity.CENTER
-                text = entry.label
-                textSize = 19f
-                setTextColor(pal.keyText)
+        for (row in rows) {
+            val rowView = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            for (entry in row) {
+                val chip = TextView(context).apply {
+                    gravity = Gravity.CENTER
+                    text = entry.label
+                    textSize = 19f
+                    setTextColor(pal.keyText)
+                    contentDescription = entry.code
+                }
+                popupChips += chip to entry
+                rowView.addView(chip, LinearLayout.LayoutParams(chipWidth, chipHeight))
             }
-            popupChips += chip to entry
-            panel.addView(chip, LinearLayout.LayoutParams(chipWidth, LinearLayout.LayoutParams.MATCH_PARENT))
+            panel.addView(rowView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, chipHeight))
         }
 
         val lp = FrameLayout.LayoutParams(
@@ -714,7 +755,11 @@ class KeyboardView(context: Context) : FrameLayout(context) {
         // key was swallowed). Fall back to the anchor/center popup chip instead.
         val index = if (highlightedChip in popupChips.indices) highlightedChip else popupChips.size / 2
         val entry = popupChips[index].second
-        listener?.onKey(entry.code, shifted = false, altgr = entry.altgr)
+        when {
+            entry.code == SymbolPalette.OPEN_SYMBOLS_CODE -> listener?.onSymbolsRequested()
+            entry.direct -> listener?.onSymbol(entry.code)
+            else -> listener?.onKey(entry.code, shifted = false, altgr = entry.altgr)
+        }
     }
 
     private fun hidePopup() {

@@ -312,6 +312,8 @@ class MainActivity : Activity() {
             { Prefs.setShowNumberToggle(this, it) }))
         add(switchSetting("Show 📋 clipboard button", Prefs.showClipboardChip(this),
             { Prefs.setShowClipboardChip(this, it) }))
+        add(switchSetting("Show # symbols button", Prefs.showSymbolsButton(this),
+            { Prefs.setShowSymbolsButton(this, it) }))
         add(switchSetting("Show ⚙ settings button", Prefs.showSettingsButton(this),
             { Prefs.setShowSettingsButton(this, it) }))
         add(switchSetting("Show ⇱ navigation button", Prefs.showNavButton(this),

@@ -166,6 +166,14 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** Opens the Symbols tab on the currency group — the fastest route to ৳ and friends. */
+    fun showSymbols() {
+        selected = EmojiCategory.SYMBOLS
+        symbolGroupIndex = 1.coerceAtMost(symbolTabs.lastIndex)
+        clearSearch()
+        refresh()
+    }
+
     /**
      * Ends search mode: clears the query and focus so a later open starts from
      * a clean state and subsequent keys go back to the app's text field.

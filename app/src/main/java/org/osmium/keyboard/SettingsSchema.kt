@@ -48,6 +48,7 @@ object SettingsSchema {
         put("number_row_always", Spec(Kind.BOOL))
         // Suggestion-bar controls
         put("toolbar_clipboard", Spec(Kind.BOOL))
+        put("toolbar_symbols", Spec(Kind.BOOL))
         put("toolbar_number", Spec(Kind.BOOL))
         put("toolbar_settings", Spec(Kind.BOOL))
         put("toolbar_nav", Spec(Kind.BOOL))
