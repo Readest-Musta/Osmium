@@ -52,6 +52,7 @@ object SettingsSchema {
         put("toolbar_number", Spec(Kind.BOOL))
         put("toolbar_settings", Spec(Kind.BOOL))
         put("toolbar_nav", Spec(Kind.BOOL))
+        put("one_handed_mode", Spec(Kind.TEXT))
 
         // Strings (values are parsed defensively by their readers)
         put("bangla_scheme", Spec(Kind.TEXT))

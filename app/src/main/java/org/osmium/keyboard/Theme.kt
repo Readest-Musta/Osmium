@@ -128,5 +128,6 @@ object Theme {
         append(':').append(Prefs.showSymbolsButton(context))
         append(':').append(Prefs.showSettingsButton(context))
         append(':').append(Prefs.showNavButton(context))
+        append(':').append(Prefs.oneHandedMode(context))
     }
 }

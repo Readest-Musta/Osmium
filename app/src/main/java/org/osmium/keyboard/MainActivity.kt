@@ -440,6 +440,26 @@ class MainActivity : Activity() {
             { "${it}dp" }, { Prefs.setKeyRadiusDp(this, it); preview?.refresh() }))
         add(sliderSetting("Key text size", 80, 150, Prefs.keyFontScale(this),
             { "$it%" }, { Prefs.setKeyFontScale(this, it); preview?.refresh() }))
+        val oneHanded = Button(this).apply {
+            fun relabel() {
+                text = "One-handed: " + when (Prefs.oneHandedMode(context)) {
+                    "left" -> "left"
+                    "right" -> "right"
+                    else -> "off"
+                }
+            }
+            relabel()
+            setOnClickListener {
+                val next = when (Prefs.oneHandedMode(context)) {
+                    "off" -> "left"
+                    "left" -> "right"
+                    else -> "off"
+                }
+                Prefs.setOneHandedMode(context, next)
+                relabel()
+            }
+        }
+        add(oneHanded)
         add(switchSetting("Number row always visible", Prefs.numberRowAlways(this),
             { Prefs.setNumberRowAlways(this, it) }))
         add(switchSetting("Show mode name on spacebar", Prefs.spacebarLabel(this),

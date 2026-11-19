@@ -5,13 +5,16 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodSubtype
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import uniffi.osmium.OsSuggestion
 import java.io.File
 
@@ -321,7 +324,53 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             keyboardView,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         )
-        return container
+        return wrapOneHanded(container)
+    }
+
+    /**
+     * Docks the whole input view to one side (78% width) with a flip rail and an
+     * exit handle. Everything else — panels, suggestions, key geometry — keeps
+     * working because only the outer container is resized.
+     */
+    private fun wrapOneHanded(container: View): View {
+        val dock = Prefs.oneHandedMode(this)
+        if (dock == "off") return container
+        val pal = Theme.palette(this)
+        val dockWidth = (resources.displayMetrics.widthPixels * 0.78f).toInt()
+        val railGravity = if (dock == "left") Gravity.END else Gravity.START
+        fun railButton(label: String, description: String, click: () -> Unit) =
+            TextView(this).apply {
+                text = label
+                textSize = 20f
+                setTextColor(pal.keyText)
+                setBackgroundColor(pal.keyboardBg)
+                setPadding(px(6), px(8), px(6), px(8))
+                contentDescription = description
+                isClickable = true
+                setOnClickListener { guarded { click() } }
+            }
+
+        return FrameLayout(this).apply {
+            addView(container, FrameLayout.LayoutParams(
+                dockWidth, FrameLayout.LayoutParams.MATCH_PARENT,
+                if (dock == "left") Gravity.START else Gravity.END
+            ))
+            addView(railButton("⇄", "Flip keyboard side") {
+                Prefs.setOneHandedMode(this@OsmiumImeService,
+                    if (dock == "left") "right" else "left")
+                setInputView(onCreateInputView())
+            }, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                railGravity or Gravity.TOP
+            ))
+            addView(railButton("⤢", "Full-width keyboard") {
+                Prefs.setOneHandedMode(this@OsmiumImeService, "off")
+                setInputView(onCreateInputView())
+            }, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                railGravity or Gravity.BOTTOM
+            ))
+        }
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {

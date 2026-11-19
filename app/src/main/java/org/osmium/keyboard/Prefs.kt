@@ -241,6 +241,16 @@ object Prefs {
         sp(context).edit().putBoolean(KEY_TOOL_CLIP, value).apply()
     }
 
+    /** One-handed keyboard dock: "off" | "left" | "right". */
+    fun oneHandedMode(context: Context): String {
+        val raw = sp(context).getString(KEY_ONE_HANDED, "off") ?: "off"
+        return if (raw in setOf("off", "left", "right")) raw else "off"
+    }
+
+    fun setOneHandedMode(context: Context, value: String) {
+        sp(context).edit().putString(KEY_ONE_HANDED, value).apply()
+    }
+
     fun showSymbolsButton(context: Context): Boolean =
         sp(context).getBoolean(KEY_TOOL_SYMBOLS, true)
     fun setShowSymbolsButton(context: Context, value: Boolean) {
@@ -397,6 +407,7 @@ object Prefs {
     private const val KEY_C_BAR = "custom_color_bar"
     private const val KEY_C_PANEL = "custom_color_panel"
     private const val KEY_CLIPBOARD = "clipboard_items"
+    private const val KEY_ONE_HANDED = "one_handed_mode"
     private const val KEY_TOOL_CLIP = "toolbar_clipboard"
     private const val KEY_TOOL_SYMBOLS = "toolbar_symbols"
     private const val KEY_TOOL_NUM = "toolbar_number"
