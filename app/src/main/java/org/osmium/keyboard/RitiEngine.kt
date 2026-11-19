@@ -180,6 +180,9 @@ class RitiEngine(private val context: Context) {
         rebuild(layout)
     }
 
+    /** True when the bundled data set is present, complete and version-matched. */
+    fun dataIsFresh(): Boolean = isDataFresh(File(context.filesDir, "riti"), DATA_FILES, DATA_VERSION)
+
     /** Sends a key press to riti and returns the updated suggestion state. */
     fun suggest(keyChar: String, modifier: Int = 0, selection: Int = 0): OsSuggestion {
         val ctx = riti ?: return EMPTY

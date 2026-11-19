@@ -646,18 +646,34 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextIsSelectable(true)
             setPadding(pad, 0, pad, pad)
-            text = run {
-                val sb = StringBuilder()
-                for (check in Diagnostics.run(this@MainActivity)) {
-                    sb.append(if (check.ok) "✅ " else "❌ ")
-                        .append(check.name)
-                        .append("\n")
-                        .append("     ").append(check.detail).append("\n\n")
-                }
-                sb.toString()
-            }
         }
+        fun render() {
+            val sb = StringBuilder()
+            for (check in Diagnostics.run(this@MainActivity)) {
+                sb.append(if (check.ok) "✅ " else "❌ ")
+                    .append(check.name)
+                    .append("\n")
+                    .append("     ").append(check.detail).append("\n\n")
+            }
+            diagView.text = sb.toString()
+        }
+        render()
         add(diagView)
+        add(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(Button(context).apply {
+                text = "Refresh"
+                setOnClickListener { render() }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(Button(context).apply {
+                text = "Copy report"
+                setOnClickListener {
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Osmium diagnostics", diagView.text))
+                    toast("Diagnostics copied")
+                }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        })
         add(note(
             "Learning happens only on this device — your typing never leaves your phone, and " +
             "incognito mode turns it off completely. Osmium has no internet permission."

@@ -1,6 +1,7 @@
 package org.osmium.keyboard
 
 import android.content.Context
+import android.content.pm.PackageManager
 import uniffi.osmium.keycodeForChar
 
 /**
@@ -16,14 +17,58 @@ object Diagnostics {
         checkNativeLibrary(),
         checkEngine(context),
         checkProbhat(context),
+        checkNoInternetPermission(context),
+        checkSymbolPalette(),
+        checkClipboardCodec(),
     )
+
+    /** Verifies the headline privacy claim from the manifest, not from prose. */
+    private fun checkNoInternetPermission(context: Context): Check = try {
+        val permissions = context.packageManager
+            .getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+            .requestedPermissions.orEmpty()
+        val hasInternet = permissions.any { it.equals("android.permission.INTERNET", true) }
+        Check(
+            "No INTERNET permission",
+            !hasInternet,
+            if (hasInternet) "INTERNET is declared" else "verified in manifest",
+        )
+    } catch (t: Throwable) {
+        Check("No INTERNET permission", false, "${t.javaClass.simpleName}: ${t.message}")
+    }
+
+    private fun checkSymbolPalette(): Check = try {
+        val period = SymbolPalette.PERIOD
+        val comma = SymbolPalette.COMMA
+        val intact = SymbolPalette.rows(period, 8).flatten() == period &&
+            SymbolPalette.rows(comma, 8).flatten() == comma
+        Check(
+            "Everyday symbol palettes",
+            intact && period.isNotEmpty() && comma.isNotEmpty(),
+            "${period.size} on '.', ${comma.size} on ','",
+        )
+    } catch (t: Throwable) {
+        Check("Everyday symbol palettes", false, "${t.javaClass.simpleName}: ${t.message}")
+    }
+
+    private fun checkClipboardCodec(): Check = try {
+        val item = Prefs.ClipboardItem("diagnostic-id", "round-trip", false, 1L)
+        val decoded = ClipboardCodec.decode(ClipboardCodec.encode(listOf(item)))
+        Check("Clipboard store", decoded == listOf(item), "encode/decode round-trip")
+    } catch (t: Throwable) {
+        Check("Clipboard store", false, "${t.javaClass.simpleName}: ${t.message}")
+    }
 
     private fun checkDataFiles(context: Context): Check {
         return try {
-            RitiEngine.ensureData(context)
+            val engine = RitiEngine(context)
             val dir = java.io.File(context.filesDir, "riti")
             val files = dir.listFiles()?.joinToString { f -> "${f.name}(${f.length() / 1024}KB)" }
-            Check("Bundled data files copied", true, files ?: "empty")
+            Check(
+                "Bundled data files (version ${RitiEngine.DATA_VERSION})",
+                engine.dataIsFresh(),
+                files ?: "empty",
+            )
         } catch (t: Throwable) {
             Check("Bundled data files copied", false, "${t.javaClass.simpleName}: ${t.message}")
         }
