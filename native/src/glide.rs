@@ -178,7 +178,7 @@ impl OsGlideDecoder {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            ctx.finish_input_session();
+            ctx.0.finish_input_session();
             let mut last = None;
             for code in &seq {
                 let key = keycode_for_char(code.clone());
@@ -186,7 +186,7 @@ impl OsGlideDecoder {
                     last = None;
                     break;
                 }
-                last = Some(ctx.get_suggestion_for_key(key as u16, 0, 0));
+                last = Some(ctx.0.get_suggestion_for_key(key as u16, 0, 0));
             }
             if let Some(s) = last {
                 let words: Vec<String> = match s {
