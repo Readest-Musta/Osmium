@@ -72,14 +72,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        installCrashReporter()
         try {
             buildUi()
         } catch (t: Throwable) {
-            // Never hard-close on a settings-screen exception: show the exact
-            // failure so it can be reported and fixed at the root cause.
+            // Last-resort safety net: show the failure on screen instead of a
+            // silent force-close. The root cause of the v0.1.16 startup crash
+            // (restricted Settings.Secure read) is fixed above.
             val report = t.stackTraceToString()
-            writeCrashReport(report)
             setContentView(android.widget.ScrollView(this).apply {
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -100,25 +99,6 @@ class MainActivity : Activity() {
                     })
                 })
             })
-        }
-    }
-
-    /** Records uncaught exceptions from anywhere in this process to shared storage. */
-    private fun installCrashReporter() {
-        val previous = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            writeCrashReport("Thread: ${thread.name}\n${error.stackTraceToString()}")
-            previous?.uncaughtException(thread, error)
-        }
-    }
-
-    private fun writeCrashReport(report: String) {
-        try {
-            val dir = java.io.File("/sdcard/Download")
-            if (dir.exists()) {
-                java.io.File(dir, "osmium-crash-report.txt").writeText(report)
-            }
-        } catch (_: Throwable) {
         }
     }
 
