@@ -94,6 +94,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** Last string we put in the composing span; avoids a redundant editor round-trip. */
     private var lastComposed: String? = null
 
+    /**
+     * Editor compatibility: some chat composers (notably WhatsApp) clear or ignore
+     * composing spans. When detected, this field switches to direct-insert mode.
+     */
+    private var directCommitMode = false
+    /** Length of the text we inserted directly for the current word. */
+    private var directCommitLength = 0
+    /** Whether the composing-span probe has run for the current field. */
+    private var composingProbeDone = false
+
     private fun noteCommitted(text: String) {
         for (c in text) {
             recentCommitted.addLast(c)
@@ -441,6 +451,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         setPanelState(panelForField(info.inputType))
         resetDoubleSpace()
         recentCommitted.clear()
+        lastComposed = null
+        directCommitLength = 0
+        composingProbeDone = false
+        val pkg = if (android.os.Build.VERSION.SDK_INT >= 28) currentInputEditorInfo?.packageName else null
+        directCommitMode = EditorCompat.needsDirectCommit(pkg, info.inputType)
         autoCapitalizeIfNeeded()
         captureClipboard()
     }
@@ -1118,6 +1133,11 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // editor never observes a half-finished candidate commit.
         ic.beginBatchEdit()
         try {
+            if (directCommitMode) {
+                // Replace the word we inserted directly, not a composing span.
+                if (directCommitLength > 0) ic.deleteSurroundingText(directCommitLength, 0)
+                directCommitLength = 0
+            }
             // commitText replaces the composing span reliably in all editors
             // (setComposingText + finishComposingText fails in some, e.g. WhatsApp).
             ic.commitText(candidate, 1)
@@ -1167,12 +1187,25 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         if (composed.isEmpty()) {
             clearComposition(ic)
             suggestionBar?.clear()
+        } else if (directCommitMode) {
+            // Editor drops composing spans: keep the live word visible by replacing
+            // our own previous insertion with only universally supported calls.
+            ic.beginBatchEdit()
+            try {
+                if (directCommitLength > 0) ic.deleteSurroundingText(directCommitLength, 0)
+                ic.commitText(composed, 1)
+                directCommitLength = composed.length
+            } finally {
+                ic.endBatchEdit()
+            }
+            if (!currentFieldAsciiOnly) suggestionBar?.update(s)
         } else {
             if (composed != lastComposed) {
                 // Setting the same composing text every keystroke forces an editor
                 // round-trip and a full re-layout in some apps; skip it when unchanged.
                 ic.setComposingText(composed, 1)
                 lastComposed = composed
+                scheduleComposingProbe(composed)
             }
             // Password fields never echo typed characters in the suggestion
             // strip — compose silently instead. (Password fields already force
@@ -1181,6 +1214,26 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 suggestionBar?.update(s)
             }
         }
+    }
+
+    /**
+     * One-shot check per field: if the editor does not contain the composing text we
+     * just set, its composing span is unreliable, so switch to direct-insert mode.
+     */
+    private fun scheduleComposingProbe(composed: String) {
+        if (composingProbeDone || composed.isEmpty()) return
+        composingProbeDone = true
+        handler.postDelayed({
+            if (!directCommitMode && latest.candidates.getOrNull(latest.selection) == composed) {
+                val before = currentInputConnection
+                    ?.getTextBeforeCursor(composed.length.coerceAtMost(128), 0)?.toString()
+                if (!EditorCompat.composingStuck(before, composed)) {
+                    clearComposition(currentInputConnection ?: return@postDelayed)
+                    directCommitMode = true
+                    render(latest)
+                }
+            }
+        }, 150)
     }
 
     /** Commits the currently selected candidate and ends the riti session. */
@@ -1196,9 +1249,14 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 // mishandled by some editors (notably WhatsApp): the candidate
                 // shows in our bar but an empty/stale span gets committed, so the
                 // word never appears. Clear any leftover composing span afterwards.
-                ic.commitText(selected, 1)
-                noteCommitted(selected)
-                ic.finishComposingText()
+                if (directCommitMode) {
+                    // The word is already in the field; just finalise the engine.
+                    directCommitLength = 0
+                } else {
+                    ic.commitText(selected, 1)
+                    noteCommitted(selected)
+                    ic.finishComposingText()
+                }
                 lastComposed = null
                 // `latest.selection` is a display index; translate before riti.
                 engine.candidateCommitted(latest.selection, latest.originalIndices)
@@ -1214,8 +1272,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun clearComposition(ic: InputConnection) {
         ic.beginBatchEdit()
         try {
-            ic.setComposingText("", 1)
-            ic.finishComposingText()
+            if (directCommitMode) {
+                if (directCommitLength > 0) ic.deleteSurroundingText(directCommitLength, 0)
+                directCommitLength = 0
+            } else {
+                ic.setComposingText("", 1)
+                ic.finishComposingText()
+            }
             lastComposed = null
             latest = RitiEngine.EMPTY
             suggestionBar?.clear()
