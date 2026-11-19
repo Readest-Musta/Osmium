@@ -60,8 +60,8 @@ object UserLexicon {
             val i = row.entries.iterator()
             while (i.hasNext()) if (i.next().value <= 0) i.remove()
         }
-        val ci = state.charNgrams.entries.iterator()
-        while (ci.hasNext()) if (ci.next().value <= 1) ci.remove()
+        // Character n-grams have no per-entry timestamp; they are bounded by the
+        // LRU cap in evict() instead of being dropped here.
     }
 
     private fun evict(state: State) {
