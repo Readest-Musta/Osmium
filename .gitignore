@@ -21,3 +21,9 @@ app/src/uniffi/
 .DS_Store
 # GitHub workflow needs a token with 'workflow' scope to push; kept locally.
 .github/workflows/
+
+# Release signing material — NEVER commit a keystore or its credentials.
+*.jks
+*.keystore
+keystore.properties
+signing.properties

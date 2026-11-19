@@ -1,7 +1,29 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing is optional. Supply a keystore through environment variables
+// (preferred for CI) or through the gitignored local.properties file. The
+// keystore and its credentials must NEVER be committed. Debug/test builds do
+// not need any of this and must keep working when no keystore is present.
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.isFile) f.inputStream().use { load(it) }
+}
+fun signingValue(property: String, env: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+
+val releaseKeystorePath = signingValue("osmium.keystore.path", "OSMIUM_KEYSTORE_PATH")
+val releaseKeystoreFile: File? = releaseKeystorePath?.let {
+    val f = File(it)
+    if (f.isAbsolute) f else rootProject.file(it)
+}
+val hasReleaseKeystore = releaseKeystoreFile?.isFile == true
 
 android {
     namespace = "org.osmium.keyboard"
@@ -11,14 +33,41 @@ android {
         applicationId = "org.osmium.keyboard"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // 0.1.15 -> major*10000 + minor*100 + patch.
+        versionCode = 115
+        versionName = "0.1.15"
+    }
+
+    signingConfigs {
+        // Only create the config when a keystore actually exists, so the
+        // canonical debug build never fails on a machine without secrets.
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = signingValue("osmium.keystore.password", "OSMIUM_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("osmium.key.alias", "OSMIUM_KEY_ALIAS")
+                keyPassword = signingValue("osmium.key.password", "OSMIUM_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
-        release {
+        debug {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        release {
+            // R8 is enabled for the distributed APK; the UniFFI/JNA keep rules
+            // in proguard-rules.pro preserve the reflective native bindings.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            // Without a keystore `assembleRelease` still produces an unsigned
+            // APK (usable by F-Droid, which signs builds itself).
         }
     }
 

@@ -1,9 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
     android:supportsSwitchingToNextInputMethod="true">
+
+    <!-- Avro Phonetic (Bangla). Default subtype. The "Osmium.Mode" extra value
+         lets the IME map a system subtype switch onto its internal mode. -->
     <subtype
-        android:label="অভ্র ফোনেটিক"
+        android:label="@string/subtype_avro"
         android:icon="@mipmap/ic_launcher"
         android:imeSubtypeLocale="bn_BD"
-        android:imeSubtypeMode="keyboard" />
+        android:languageTag="bn-BD"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="Osmium.Mode=avro" />
+
+    <!-- Probhat fixed Bangla layout. -->
+    <subtype
+        android:label="@string/subtype_probhat"
+        android:icon="@mipmap/ic_launcher"
+        android:imeSubtypeLocale="bn_BD"
+        android:languageTag="bn-BD"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="Osmium.Mode=probhat" />
+
+    <!-- English / ASCII capable. -->
+    <subtype
+        android:label="@string/subtype_english"
+        android:icon="@mipmap/ic_launcher"
+        android:imeSubtypeLocale="en_US"
+        android:languageTag="en-US"
+        android:imeSubtypeMode="keyboard"
+        android:isAsciiCapable="true"
+        android:imeSubtypeExtraValue="AsciiCapable,Osmium.Mode=english" />
 </input-method>

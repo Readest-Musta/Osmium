@@ -8,10 +8,27 @@ import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodSubtype
 import android.widget.LinearLayout
 import uniffi.osmium.OsSuggestion
 import java.io.File
+
+/**
+ * One consistent read of a text window plus its selection. Both offsets are
+ * absolute (relative to the start of the editor's text), so callers never mix
+ * the per-call coordinate systems of getTextBeforeCursor/getExtractedText.
+ */
+private data class EditorSnapshot(
+    val text: String,
+    val startOffset: Int,
+    val selectionStart: Int,
+    val selectionEnd: Int,
+) {
+    /** Selection index relative to [text]. */
+    val relativeSelection: Int get() = (selectionStart - startOffset).coerceIn(0, text.length)
+}
 
 /**
  * Osmium IME — the heart of the keyboard.
@@ -25,6 +42,8 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     /** riti MODIFIER_ALT_GR (see riti::context). */
     private companion object {
         const val MODIFIER_ALT_GR = 2
+        /** Prefix of the per-subtype mode marker declared in method.xml. */
+        const val SUBTYPE_MODE_PREFIX = "Osmium.Mode="
     }
 
     private lateinit var engine: RitiEngine
@@ -33,6 +52,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var emojiPanel: EmojiPanel? = null
     private var clipboardPanel: ClipboardPanel? = null
     private var navigationPanel: NavigationPanel? = null
+    private var numericPanel: NumericPanel? = null
 
     private var mode = KeyboardMode.AVRO
     private var latest = RitiEngine.EMPTY
@@ -55,7 +75,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var lastClip = ""
 
     /** Single owner of which panel is open; closing always resets transient state. */
-    private enum class PanelState { NONE, EMOJI, CLIPBOARD, NAV }
+    private enum class PanelState { NONE, EMOJI, CLIPBOARD, NAV, NUMERIC }
     private var panelState = PanelState.NONE
 
     /** Text snapshots backing the undo/redo fallback when the app has no native undo. */
@@ -70,7 +90,34 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             else -> KeyboardMode.AVRO
         }
         // Initialise the engine for the saved mode (was missing in v0.1).
+        // The system subtype, when reported via onCurrentInputMethodSubtypeChanged,
+        // overrides this initial choice (English / Probhat / Avro).
         layoutFor(mode)?.let { engine.useLayout(it) }
+    }
+
+    override fun onCurrentInputMethodSubtypeChanged(subtype: InputMethodSubtype?) {
+        super.onCurrentInputMethodSubtypeChanged(subtype)
+        guarded { applySubtypeMode(subtype, rebuildView = true) }
+    }
+
+    /**
+     * Maps a system subtype's extra value (written in method.xml) onto the
+     * internal keyboard mode. Bangla modes are persisted so the Settings screen
+     * and `reconcileScheme()` stay in sync; English is a transient choice, as
+     * in `cycleMode()`.
+     */
+    private fun applySubtypeMode(subtype: InputMethodSubtype?, rebuildView: Boolean) {
+        if (!::engine.isInitialized) return
+        val extra = subtype?.extraValue.orEmpty()
+        val desired = when {
+            extra.contains("${SUBTYPE_MODE_PREFIX}english") -> KeyboardMode.ENGLISH
+            extra.contains("${SUBTYPE_MODE_PREFIX}probhat") -> KeyboardMode.PROBHAT
+            extra.contains("${SUBTYPE_MODE_PREFIX}avro") -> KeyboardMode.AVRO
+            else -> return
+        }
+        if (desired == mode) return
+        switchToMode(desired)
+        if (rebuildView) setInputView(buildInputView())
     }
 
     override fun onDestroy() {
@@ -192,6 +239,31 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             onAction = { action -> onNavAction(action) }
         }
 
+        numericPanel = NumericPanel(this).apply {
+            visibility = View.GONE
+            onKey = { ch ->
+                guarded {
+                    haptic()
+                    resetDoubleSpace()
+                    currentInputConnection?.commitText(ch, 1)
+                }
+            }
+            onBackspace = {
+                guarded {
+                    haptic()
+                    resetDoubleSpace()
+                    currentInputConnection?.deleteSurroundingText(1, 0)
+                }
+            }
+            onEnter = { guarded { this@OsmiumImeService.onEnter() } }
+            onDone = {
+                guarded {
+                    haptic()
+                    setPanelState(PanelState.NONE)
+                }
+            }
+        }
+
         val isLandscape = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE
         // The keyboard is hidden while a panel is open, so panels can use more
@@ -213,6 +285,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         )
         container.addView(
             navigationPanel,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(panelHeightDp))
+        )
+        container.addView(
+            numericPanel,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(panelHeightDp))
         )
         container.addView(
@@ -260,7 +336,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         latest = RitiEngine.EMPTY
         suggestionBar?.clear()
         keyboardView?.setCandidateSelectionActive(false)
-        setPanelState(PanelState.NONE)
+        // Numeric/phone fields get a compact literal-keypad panel; every other
+        // field gets the normal keyboard. Closing any previous panel here also
+        // clears its transient state via setPanelState().
+        val fieldClass = info.inputType and InputType.TYPE_MASK_CLASS
+        val numericField = fieldClass == InputType.TYPE_CLASS_NUMBER ||
+            fieldClass == InputType.TYPE_CLASS_PHONE
+        setPanelState(if (numericField) PanelState.NUMERIC else PanelState.NONE)
         resetDoubleSpace()
         autoCapitalizeIfNeeded()
         captureClipboard()
@@ -329,6 +411,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         emojiPanel?.visibility = if (state == PanelState.EMOJI) View.VISIBLE else View.GONE
         clipboardPanel?.visibility = if (state == PanelState.CLIPBOARD) View.VISIBLE else View.GONE
         navigationPanel?.visibility = if (state == PanelState.NAV) View.VISIBLE else View.GONE
+        numericPanel?.visibility = if (state == PanelState.NUMERIC) View.VISIBLE else View.GONE
         keyboardView?.visibility = if (state == PanelState.NONE) View.VISIBLE else View.GONE
     }
 
@@ -462,12 +545,33 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         ic.setSelection(target, target)
     }
 
-    /** Current cursor position via extracted text; null when unavailable. */
-    private fun cursorPosition(ic: InputConnection): Int? {
-        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-            ?: return null
-        return et.startOffset + et.selectionStart
+    /**
+     * Reads text and selection in a single InputConnection call. On API 33+
+     * [InputConnection.takeSnapshot] makes this atomic; older devices use one
+     * getExtractedText() call. Routing every cursor/text read through here
+     * removes the races between backspace, navigation and selection.
+     */
+    private fun editorSnapshot(ic: InputConnection): EditorSnapshot? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val snapshot = ic.takeSnapshot() ?: return null
+            val surrounding = snapshot.surroundingText
+            val base = surrounding.offset
+            val selStart = snapshot.selectionStart
+            val selEnd = snapshot.selectionEnd
+            if (base < 0 || selStart < 0 || selEnd < 0) return null
+            EditorSnapshot(surrounding.text?.toString().orEmpty(), base, selStart, selEnd)
+        } else {
+            val et = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return null
+            val base = et.startOffset
+            val selStart = et.selectionStart
+            val selEnd = et.selectionEnd
+            if (base < 0 || selStart < 0 || selEnd < 0) return null
+            EditorSnapshot(et.text?.toString().orEmpty(), base, base + selStart, base + selEnd)
+        }
     }
+
+    /** Current absolute cursor position; null when unavailable. */
+    private fun cursorPosition(ic: InputConnection): Int? = editorSnapshot(ic)?.selectionStart
 
     /**
      * English-only auto-cap at a word boundary that follows a sentence break
@@ -513,12 +617,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             latest = s
             render(s)
         } else {
-            val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-            if (et != null && et.selectionStart != et.selectionEnd) {
-                // Delete the selection.
+            // One snapshot decides both "is there a selection?" and the
+            // codepoint width to delete — no second read that could race.
+            val snap = editorSnapshot(ic)
+            if (snap != null && snap.selectionStart != snap.selectionEnd) {
                 ic.commitText("", 1)
             } else {
-                deleteOneCodepoint(ic)
+                deleteOneCodepoint(ic, snap)
             }
         }
     }
@@ -666,15 +771,17 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             meta = meta or KeyEvent.META_SHIFT_ON
         }
 
-        val before = cursorPosition(ic)
+        val before = editorSnapshot(ic)?.selectionStart
         ic.sendKeyEvent(movementKeyEvent(KeyEvent.ACTION_DOWN, keyCode, meta))
         ic.sendKeyEvent(movementKeyEvent(KeyEvent.ACTION_UP, keyCode, meta))
-        val after = cursorPosition(ic)
-        if (before != null && after == before) {
+        val after = editorSnapshot(ic)
+        if (before != null && after != null && after.selectionStart == before) {
             // Mirror the key-event meta logic: only LEFT/RIGHT extend a selection.
             val extendSelection = shiftActive &&
                 (action == NavAction.LEFT || action == NavAction.RIGHT)
-            fallbackSelection(ic, action, before, extendSelection)
+            // Reuse the "after" snapshot for the fallback instead of reading the
+            // editor a third time, which could observe a different field state.
+            fallbackSelection(ic, action, before, extendSelection, after)
         }
     }
 
@@ -683,14 +790,14 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         return KeyEvent(now, now, action, keyCode, meta)
     }
 
-    /** setSelection fallback computed from extracted text for fields that ignore key events. */
+    /** setSelection fallback computed from the post-key snapshot for fields that ignore key events. */
     private fun fallbackSelection(
-        ic: InputConnection, action: NavAction, cursor: Int, extend: Boolean
+        ic: InputConnection, action: NavAction, cursor: Int, extend: Boolean,
+        snap: EditorSnapshot
     ) {
-        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0) ?: return
-        val s = et.text?.toString() ?: return
-        val base = et.startOffset
-        val rel = et.selectionStart.coerceIn(0, s.length)
+        val s = snap.text
+        val base = snap.startOffset
+        val rel = snap.relativeSelection
         val anchor = cursor // absolute cursor read before the (ignored) key events
         val target = when (action) {
             NavAction.LEFT ->
@@ -729,14 +836,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         return if (nl < 0) 0 else nl + 1
     }
 
-    /** Selects the single word around the cursor using extracted text. */
+    /** Selects the single word around the cursor from one consistent snapshot. */
     private fun selectWordAtCursor(ic: InputConnection) {
-        val et = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0) ?: return
-        val s = et.text?.toString() ?: return
-        val rel = et.selectionStart.coerceIn(0, s.length)
-        val range = TextNav.wordRangeAroundBangla(s, rel)
-        // Extracted-text offsets are relative to et.startOffset; setSelection is absolute.
-        ic.setSelection(et.startOffset + range.first, et.startOffset + range.last)
+        val snap = editorSnapshot(ic) ?: return
+        val s = snap.text
+        val range = TextNav.wordRangeAroundBangla(s, snap.relativeSelection)
+        // Snapshot text offsets are relative to startOffset; setSelection is absolute.
+        ic.setSelection(snap.startOffset + range.first, snap.startOffset + range.last)
     }
 
     override fun onEnter() = guarded {
@@ -846,9 +952,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             suggestionBar?.clear()
         } else {
             ic.setComposingText(composed, 1)
-            // In an incognito password field, never echo typed characters in
-            // the suggestion strip — compose silently instead.
-            if (!(incognito && currentFieldIsPassword)) {
+            // Password fields never echo typed characters in the suggestion
+            // strip — compose silently instead. (Password fields already force
+            // incognito on, but the explicit check keeps the privacy gate local.)
+            if (!currentFieldIsPassword) {
                 suggestionBar?.update(s)
             }
         }
@@ -915,8 +1022,16 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     /** Codepoint-aware delete (handles surrogate pairs / emoji). */
-    private fun deleteOneCodepoint(ic: InputConnection) {
-        val before = ic.getTextBeforeCursor(2, 0)?.toString().orEmpty()
+    private fun deleteOneCodepoint(ic: InputConnection, snap: EditorSnapshot? = null) {
+        // Prefer the two characters immediately before the cursor from the
+        // same snapshot; only fall back to a separate read when the snapshot
+        // has no text before the cursor window.
+        val before = if (snap != null && snap.relativeSelection > 0) {
+            val rel = snap.relativeSelection
+            snap.text.substring(maxOf(0, rel - 2), rel)
+        } else {
+            ic.getTextBeforeCursor(2, 0)?.toString().orEmpty()
+        }
         val len = if (before.length == 2 && Character.isHighSurrogate(before[0])) 2 else 1
         ic.deleteSurroundingText(len, 0)
     }
@@ -957,14 +1072,20 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun cycleMode() {
-        if (engine.isSessionActive()) commitCurrentCandidate()
-        resetDoubleSpace()
-
-        mode = when (mode) {
+        val next = when (mode) {
             KeyboardMode.AVRO -> KeyboardMode.PROBHAT
             KeyboardMode.PROBHAT -> KeyboardMode.ENGLISH
             KeyboardMode.ENGLISH -> KeyboardMode.AVRO
         }
+        switchToMode(next)
+    }
+
+    /** Applies [next] as the active mode: engine, persisted scheme and UI. */
+    private fun switchToMode(next: KeyboardMode) {
+        if (engine.isSessionActive()) commitCurrentCandidate()
+        resetDoubleSpace()
+
+        mode = next
 
         val layout = layoutFor(mode)
         if (layout != null) {

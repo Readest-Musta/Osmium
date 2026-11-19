@@ -3,4 +3,8 @@
     <string name="app_name">Osmium</string>
     <string name="ime_name">Osmium Keyboard</string>
     <string name="privacy_note">Osmium never connects to the internet. No analytics, no tracking, ever.</string>
+    <!-- Labels shown in the Android input-method subtype picker. -->
+    <string name="subtype_avro">অভ্র ফোনেটিক (Avro)</string>
+    <string name="subtype_probhat">প্রভাত (Probhat)</string>
+    <string name="subtype_english">English (ASCII)</string>
 </resources>
