@@ -22,7 +22,9 @@ object InputTypeRules {
         if (isPassword) return true
         val cls = inputType and MASK_CLASS
         if (cls == CLASS_NUMBER || cls == CLASS_PHONE || cls == CLASS_DATETIME) return true
-        val variation = inputType and MASK_VARIATION
+        // TYPE_MASK_VARIATION includes the low class bits; strip them so a plain
+        // text field (class 1) with EMAIL variation (0x30) reads as 0x30.
+        val variation = inputType and MASK_VARIATION and 0xFFFFFFF0.toInt()
         return variation == VARIATION_URI || variation == VARIATION_EMAIL
     }
 }

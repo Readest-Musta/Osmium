@@ -316,7 +316,7 @@ class MainActivity : Activity() {
                 setTextColor(pal.accent)
             })
             addView(TextView(context).apply {
-                text = "No INTERNET permission. No analytics. Learning and clipboard history "
+                text = "No INTERNET permission. No analytics. Learning and clipboard history " +
                     "stay on this device and are never uploaded."
                 textSize = 13f
                 setTextColor(pal.keyText)
@@ -408,6 +408,24 @@ class MainActivity : Activity() {
         }
         add(themeGroup)
         add(note("Custom theme uses the colours below; unset colours fall back to the system palette."))
+        add(label("Theme presets:"))
+        add(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            for (preset in ThemePresets.ALL) {
+                addView(Button(context).apply {
+                    text = preset.name
+                    textSize = 11f
+                    setOnClickListener {
+                        Theme.setMode(this@MainActivity, "custom")
+                        for ((key, color) in preset.colors) {
+                            Prefs.setCustomColor(this@MainActivity, key, color)
+                        }
+                        toast("${preset.name} theme applied")
+                        recreate()
+                    }
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        })
 
         val colorRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
