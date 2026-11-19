@@ -58,7 +58,7 @@ const OUT_W: [f64; 12] = [
 ];
 
 pub struct OsGlideDecoder {
-    ctx: Mutex<RitiContext>,
+    ctx: Mutex<crate::WrapSync<RitiContext>>,
     dictionary: HashSet<String>,
 }
 
@@ -99,13 +99,13 @@ impl OsGlideDecoder {
             .join(format!("osmium-glide-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&scratch);
         let mut config = Config::default();
-        config.set_database_dir(database_dir);
-        config.set_user_dir(scratch.to_string_lossy().to_string());
-        config.set_layout_file_path(layout);
+        config.set_database_dir(&database_dir);
+        config.set_user_dir(&scratch.to_string_lossy());
+        config.set_layout_file_path(&layout);
         config.set_phonetic_suggestion(true);
         config.set_suggestion_include_english(false);
         OsGlideDecoder {
-            ctx: Mutex::new(RitiContext::new_with_config(&config)),
+            ctx: Mutex::new(crate::WrapSync(RitiContext::new_with_config(&config))),
             dictionary,
         }
     }
@@ -189,7 +189,13 @@ impl OsGlideDecoder {
                 last = Some(ctx.get_suggestion_for_key(key as u16, 0, 0));
             }
             if let Some(s) = last {
-                for (rank, word) in s.candidates.iter().take(3).enumerate() {
+                let words: Vec<String> = match s {
+                    riti::suggestion::Suggestion::Full { suggestions, .. } => suggestions,
+                    riti::suggestion::Suggestion::Single { suggestion, .. } => {
+                        if suggestion.is_empty() { Vec::new() } else { vec![suggestion] }
+                    }
+                };
+                for (rank, word) in words.iter().take(3).enumerate() {
                     if !word.is_empty() {
                         found.push((word.clone(), seq.clone(), rank));
                     }
