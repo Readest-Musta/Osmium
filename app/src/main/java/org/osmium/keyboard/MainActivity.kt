@@ -243,6 +243,13 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Reads the version from the installed package (no generated BuildConfig here). */
+    private fun appVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+    } catch (_: Throwable) {
+        "unknown"
+    }
+
     /** Gives the settings screen an identity — it currently opens as an anonymous list. */
     private fun buildAppBar() {
         add(TextView(this).apply {
@@ -253,7 +260,7 @@ class MainActivity : Activity() {
             setPadding(pad, pad / 2, pad, 0)
         })
         add(TextView(this).apply {
-            text = "Privacy-first Bengali keyboard · v${BuildConfig.VERSION_NAME}"
+            text = "Privacy-first Bengali keyboard · v${appVersion()}"
             textSize = 12f
             setTextColor(0xFF9AA0B0.toInt())
             setPadding(pad, 0, pad, pad / 2)
