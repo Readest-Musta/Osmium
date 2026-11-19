@@ -33,9 +33,9 @@ android {
         applicationId = "org.osmium.keyboard"
         minSdk = 24
         targetSdk = 35
-        // 0.1.21 -> major*10000 + minor*100 + patch.
-        versionCode = 121
-        versionName = "0.1.21"
+        // 0.1.22 -> major*10000 + minor*100 + patch.
+        versionCode = 122
+        versionName = "0.1.22"
     }
 
     signingConfigs {
