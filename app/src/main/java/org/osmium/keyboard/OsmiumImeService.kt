@@ -85,6 +85,19 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var currentFieldIsPassword = false
     /** Password/number/email/URI fields must receive literal ASCII, not Bengali. */
     private var currentFieldAsciiOnly = false
+    /**
+     * What the IME itself has committed recently. The editor's getTextBeforeCursor
+     * can lag behind commitText() during fast typing, which made auto-capitalize
+     * think every key started a new sentence. This local buffer is authoritative.
+     */
+    private val recentCommitted = ArrayDeque<Char>()
+
+    private fun noteCommitted(text: String) {
+        for (c in text) {
+            recentCommitted.addLast(c)
+            while (recentCommitted.size > 64) recentCommitted.removeFirst()
+        }
+    }
     /** Fingerprint of the settings baked into the current input view. */
     private var appliedSettingsKey: String? = null
     /** True while the error/retry view is installed, so a new field can recover. */
@@ -425,6 +438,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // clears its transient state via setPanelState().
         setPanelState(panelForField(info.inputType))
         resetDoubleSpace()
+        recentCommitted.clear()
         autoCapitalizeIfNeeded()
         captureClipboard()
     }
@@ -586,6 +600,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         when (mode) {
             KeyboardMode.ENGLISH -> {
                 currentInputConnection?.commitText(char, 1)
+                noteCommitted(char)
                 lastWasSpace = false
                 autoCapitalizeIfNeeded()
             }
@@ -669,6 +684,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             lastWasSpace = false
             lastSpaceAt = 0L
             ic.commitText(" ", 1)
+            noteCommitted(" ")
             return@guarded
         }
         // Double-space → দাঁড়ি (।): second space soon after the first one
@@ -683,10 +699,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         ) {
             ic.deleteSurroundingText(1, 0)
             ic.commitText("।", 1)
+            if (recentCommitted.lastOrNull() == ' ') recentCommitted.removeLast()
+            noteCommitted("।")
             lastWasSpace = false
             lastSpaceAt = 0L
         } else {
             ic.commitText(" ", 1)
+            noteCommitted(" ")
             lastWasSpace = true
             lastSpaceAt = now
         }
@@ -748,11 +767,10 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private fun autoCapitalizeIfNeeded() {
         if (!Prefs.autoCapitalize(this) || mode != KeyboardMode.ENGLISH) return
         if (keyboardView?.isShiftManual() == true || autoCapSuppressedField()) return
-        val ic = currentInputConnection ?: return
-        // Trim spaces/tabs only: a trailing newline is itself a boundary.
-        val before = ic.getTextBeforeCursor(64, 0)?.toString().orEmpty().trimEnd(' ', '\t')
-        val atSentenceStart = before.isEmpty() || before.last() in ".!?।\n\r"
-        keyboardView?.setShift(atSentenceStart)
+        // Use what we committed, not the editor's lagging view of it: during fast
+        // typing getTextBeforeCursor() can return text from before the last
+        // commit, making every key look like a sentence start.
+        keyboardView?.setShift(AutoCap.shouldShift(recentCommitted.lastOrNull()))
     }
 
     /** Password, URL/web, e-mail and numeric/phone fields never get auto-cap. */
@@ -783,6 +801,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             return@guarded
         }
         val ic = currentInputConnection ?: return@guarded
+        recentCommitted.removeLastOrNull()
         if (engine.isSessionActive()) {
             // Riti owns the composition; let it recompute.
             val s = engine.backspace(ctrl = false)
@@ -1100,6 +1119,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
             // commitText replaces the composing span reliably in all editors
             // (setComposingText + finishComposingText fails in some, e.g. WhatsApp).
             ic.commitText(candidate, 1)
+            noteCommitted(candidate)
             ic.finishComposingText()
             // `index` is a display index; tell riti its original index instead.
             engine.candidateCommitted(index, latest.originalIndices)
@@ -1169,6 +1189,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
                 // shows in our bar but an empty/stale span gets committed, so the
                 // word never appears. Clear any leftover composing span afterwards.
                 ic.commitText(selected, 1)
+                noteCommitted(selected)
                 ic.finishComposingText()
                 // `latest.selection` is a display index; translate before riti.
                 engine.candidateCommitted(latest.selection, latest.originalIndices)
