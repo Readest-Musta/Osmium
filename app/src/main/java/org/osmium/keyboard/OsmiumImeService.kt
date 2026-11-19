@@ -20,7 +20,7 @@ import java.io.File
  * absolute (relative to the start of the editor's text), so callers never mix
  * the per-call coordinate systems of getTextBeforeCursor/getExtractedText.
  */
-private data class EditorSnapshot(
+internal data class EditorSnapshot(
     val text: String,
     val startOffset: Int,
     val selectionStart: Int,
@@ -28,6 +28,25 @@ private data class EditorSnapshot(
 ) {
     /** Selection index relative to [text]. */
     val relativeSelection: Int get() = (selectionStart - startOffset).coerceIn(0, text.length)
+}
+
+/**
+ * Pure validation/normalisation of one text-window read. Returns null when the
+ * offsets are unusable so the caller can fall through to another read source.
+ * `TextSnapshot` already reports absolute selection offsets; `ExtractedText`
+ * reports them relative to [base].
+ */
+internal fun editorSnapshotOf(
+    text: String?,
+    base: Int,
+    selectionStart: Int,
+    selectionEnd: Int,
+    selectionIsAbsolute: Boolean,
+): EditorSnapshot? {
+    if (base < 0 || selectionStart < 0 || selectionEnd < 0) return null
+    val start = if (selectionIsAbsolute) selectionStart else base + selectionStart
+    val end = if (selectionIsAbsolute) selectionEnd else base + selectionEnd
+    return EditorSnapshot(text.orEmpty(), base, start, end)
 }
 
 /**
@@ -117,7 +136,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         }
         if (desired == mode) return
         switchToMode(desired)
-        if (rebuildView) setInputView(buildInputView())
+        if (rebuildView) {
+            setInputView(buildInputView())
+            // buildInputView() creates fresh panels (all GONE) while `panelState`
+            // still holds the pre-rebuild value. Re-assert visibility from the
+            // current field so the first panel-chip tap is not swallowed.
+            setPanelState(panelForField(currentInputType))
+        }
     }
 
     override fun onDestroy() {
@@ -339,10 +364,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // Numeric/phone fields get a compact literal-keypad panel; every other
         // field gets the normal keyboard. Closing any previous panel here also
         // clears its transient state via setPanelState().
-        val fieldClass = info.inputType and InputType.TYPE_MASK_CLASS
-        val numericField = fieldClass == InputType.TYPE_CLASS_NUMBER ||
-            fieldClass == InputType.TYPE_CLASS_PHONE
-        setPanelState(if (numericField) PanelState.NUMERIC else PanelState.NONE)
+        setPanelState(panelForField(info.inputType))
         resetDoubleSpace()
         autoCapitalizeIfNeeded()
         captureClipboard()
@@ -397,8 +419,18 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         lastSpaceAt = 0L
     }
 
+    /** Panel a field of [inputType] should start with. */
+    private fun panelForField(inputType: Int): PanelState {
+        val cls = inputType and InputType.TYPE_MASK_CLASS
+        return if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE) {
+            PanelState.NUMERIC
+        } else {
+            PanelState.NONE
+        }
+    }
+
     /**
-     * Single owner of panel visibility. Every transition to [PanelState.NONE]
+     * Single owner of panel visibility. Every transition away from a panel
      * clears transient UI state (emoji search query/focus, navigation repeat
      * timers) so no panel can reopen in a stale state.
      */
@@ -549,28 +581,36 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     /**
-     * Reads text and selection in a single InputConnection call. On API 33+
-     * [InputConnection.takeSnapshot] makes this atomic; older devices use one
-     * getExtractedText() call. Routing every cursor/text read through here
-     * removes the races between backspace, navigation and selection.
+     * Reads text and selection in as few InputConnection calls as possible.
+     * On API 33+ [InputConnection.takeSnapshot] is tried first for an atomic
+     * read, but the platform documents that IMEs normally receive `null` (and
+     * the default implementation returns `null`), so a null/invalid snapshot
+     * MUST fall through to a single getExtractedText() read — never be treated
+     * as "no text". That fallback is also the only path on older devices.
      */
     private fun editorSnapshot(ic: InputConnection): EditorSnapshot? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val snapshot = ic.takeSnapshot() ?: return null
-            val surrounding = snapshot.surroundingText
-            val base = surrounding.offset
-            val selStart = snapshot.selectionStart
-            val selEnd = snapshot.selectionEnd
-            if (base < 0 || selStart < 0 || selEnd < 0) return null
-            EditorSnapshot(surrounding.text?.toString().orEmpty(), base, selStart, selEnd)
-        } else {
-            val et = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return null
-            val base = et.startOffset
-            val selStart = et.selectionStart
-            val selEnd = et.selectionEnd
-            if (base < 0 || selStart < 0 || selEnd < 0) return null
-            EditorSnapshot(et.text?.toString().orEmpty(), base, base + selStart, base + selEnd)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val snapshot = ic.takeSnapshot()
+            if (snapshot != null) {
+                val surrounding = snapshot.surroundingText
+                editorSnapshotOf(
+                    surrounding.text?.toString(),
+                    surrounding.offset,
+                    snapshot.selectionStart,
+                    snapshot.selectionEnd,
+                    selectionIsAbsolute = true,
+                )?.let { return it }
+            }
         }
+        // Single fallback read: null takeSnapshot, invalid offsets, or API < 33.
+        val et = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return null
+        return editorSnapshotOf(
+            et.text?.toString(),
+            et.startOffset,
+            et.selectionStart,
+            et.selectionEnd,
+            selectionIsAbsolute = false,
+        )
     }
 
     /** Current absolute cursor position; null when unavailable. */
