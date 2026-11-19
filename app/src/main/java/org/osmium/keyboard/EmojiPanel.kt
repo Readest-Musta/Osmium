@@ -180,7 +180,15 @@ class EmojiPanel(context: Context) : LinearLayout(context) {
 
     /** Records a pick in the correct recents list (emoji vs special symbol). */
     private fun recordPick(item: String) {
-        if (EmojiData.isSymbol(item)) Prefs.addSymbolRecent(context, item)
+        // While browsing a category the tab is authoritative: shared glyphs
+        // such as ❤ appear in both datasets but belong where they were picked.
+        // Search results are mixed, so fall back to the symbol-glyph set.
+        val isSymbol = if (searchBox.text?.toString().isNullOrBlank()) {
+            selected == EmojiCategory.SYMBOLS
+        } else {
+            EmojiData.isSymbol(item)
+        }
+        if (isSymbol) Prefs.addSymbolRecent(context, item)
         else Prefs.addEmojiRecent(context, item)
     }
 
