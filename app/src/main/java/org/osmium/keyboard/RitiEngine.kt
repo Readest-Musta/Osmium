@@ -40,20 +40,53 @@ class RitiEngine(private val context: Context) {
         private val DATA_FILES = listOf(
             "dictionary.json", "autocorrect.json", "suffix.json", "Probhat.json"
         )
+        /** Bump whenever bundled riti assets change so upgrades re-copy them. */
+        const val DATA_VERSION = "v1"
+        private const val VERSION_FILE = ".version"
 
-        /** Copies bundled riti data files into internal storage (idempotent). */
+        /**
+         * True only when the version marker matches and every data file is non-empty.
+         * Android-free so an upgrade / truncated-copy regression can be pinned on the JVM.
+         */
+        internal fun isDataFresh(dir: File, names: List<String>, version: String): Boolean {
+            val marker = File(dir, VERSION_FILE)
+            if (!marker.exists() || marker.readText().trim() != version) return false
+            return names.all { name ->
+                val file = File(dir, name)
+                file.exists() && file.length() > 0L
+            }
+        }
+
+        /**
+         * Copies bundled riti data into internal storage. A data set is accepted only
+         * with a matching version marker; stale or truncated copies are replaced via
+         * a temp file + atomic rename so a failed copy can never leave a half file.
+         */
         fun ensureData(context: Context) {
             val dbDir = File(context.filesDir, "riti")
             val userDir = File(context.filesDir, "user")
             dbDir.mkdirs()
             userDir.mkdirs()
+            if (isDataFresh(dbDir, DATA_FILES, DATA_VERSION)) return
+
+            var complete = true
             for (name in DATA_FILES) {
                 val target = File(dbDir, name)
-                if (target.exists() && target.length() > 0) continue
-                context.assets.open("$ASSET_DIR/$name").use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
+                val tmp = File(dbDir, "$name.tmp")
+                try {
+                    context.assets.open("$ASSET_DIR/$name").use { input ->
+                        tmp.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (tmp.length() == 0L || !tmp.renameTo(target)) complete = false
+                } catch (_: Exception) {
+                    complete = false
+                } finally {
+                    if (tmp.exists()) tmp.delete()
                 }
             }
+            // Write the marker last: a failed copy leaves the old marker in place so
+            // the next start retries instead of trusting an incomplete data set.
+            if (complete) File(dbDir, VERSION_FILE).writeText(DATA_VERSION)
         }
 
         val EMPTY = OsSuggestion(

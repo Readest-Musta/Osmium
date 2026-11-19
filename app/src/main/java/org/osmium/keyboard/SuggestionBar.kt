@@ -22,6 +22,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     var onNumberRowToggle: (() -> Unit)? = null
     var onSettingsTap: (() -> Unit)? = null
     var onClipboardToggle: (() -> Unit)? = null
+    var onSymbolsToggle: (() -> Unit)? = null
     var onNavToggle: (() -> Unit)? = null
 
     private val chips = mutableListOf<TextView>()
@@ -32,8 +33,8 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     private val navButton: TextView
     private val numberButton: TextView
     private val clipboardChip: TextView
+    private val symbolsButton: TextView
     private val settingsButton: TextView
-    private var clipboardEnabled = true
 
     init {
         orientation = HORIZONTAL
@@ -58,7 +59,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             visibility = GONE
         }.also { addView(it, LayoutParams(dp(72), LayoutParams.MATCH_PARENT)) }
 
-        langButton = controlButton("", weight = 1f).also {
+        langButton = controlButton("", "Switch typing mode").also {
             it.setOnClickListener { onLanguageToggle?.invoke() }
             addView(it, barParams(1f))
         }
@@ -79,22 +80,27 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             addView(chip, barParams(1.6f))
         }
 
-        navButton = controlButton("⇱", 1f).also {
+        navButton = controlButton("⇱", "Navigation and editing").also {
             it.setOnClickListener { onNavToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        numberButton = controlButton("১২৩", 1f).also {
+        numberButton = controlButton("১২৩", "Toggle number row").also {
             it.setOnClickListener { onNumberRowToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        clipboardChip = controlButton("📋", 1f).also {
+        clipboardChip = controlButton("📋", "Clipboard history").also {
             it.setOnClickListener { onClipboardToggle?.invoke() }
             addView(it, barParams(1f))
         }
 
-        settingsButton = controlButton("⚙", 1f).also {
+        symbolsButton = controlButton("#", "Symbols").also {
+            it.setOnClickListener { onSymbolsToggle?.invoke() }
+            addView(it, barParams(1f))
+        }
+
+        settingsButton = controlButton("⚙", "Settings").also {
             it.setOnClickListener { onSettingsTap?.invoke() }
             addView(it, barParams(1f))
         }
@@ -105,9 +111,10 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
     fun refreshControls() {
         navButton.visibility = if (Prefs.showNavButton(context)) VISIBLE else GONE
         numberButton.visibility = if (Prefs.showNumberToggle(context)) VISIBLE else GONE
-        clipboardChip.visibility =
-            if (clipboardEnabled && Prefs.showClipboardChip(context)) VISIBLE else GONE
-        clipboardChip.isEnabled = clipboardEnabled
+        // The clipboard stays reachable even in incognito: the panel switches to
+        // paste-only instead of silently disappearing.
+        clipboardChip.visibility = if (Prefs.showClipboardChip(context)) VISIBLE else GONE
+        symbolsButton.visibility = if (Prefs.showSymbolsButton(context)) VISIBLE else GONE
         settingsButton.visibility = if (Prefs.showSettingsButton(context)) VISIBLE else GONE
     }
 
@@ -146,7 +153,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
 
     private fun barParams(weight: Float) = LayoutParams(0, LayoutParams.MATCH_PARENT, weight)
 
-    private fun controlButton(label: String, weight: Float): TextView =
+    private fun controlButton(label: String, description: String): TextView =
         TextView(context).apply {
             gravity = Gravity.CENTER
             text = label
@@ -154,6 +161,7 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Theme.palette(context).keyTextHint)
+            contentDescription = description
             isClickable = true
         }
 
@@ -171,10 +179,18 @@ class SuggestionBar(context: Context) : LinearLayout(context) {
         incognitoIndicator.visibility = if (active) VISIBLE else GONE
     }
 
-    /** Hides/disables the clipboard chip (e.g. while incognito). */
-    fun setClipboardEnabled(enabled: Boolean) {
-        clipboardEnabled = enabled
-        refreshControls()
+    /**
+     * Marks the clipboard chip read-only (incognito): it remains visible so pasting
+     * a deliberately copied snippet still works, but its label tells the user that
+     * nothing new will be recorded.
+     */
+    fun setClipboardReadOnly(readOnly: Boolean) {
+        clipboardChip.contentDescription = if (readOnly) {
+            "Clipboard history (read-only in incognito)"
+        } else {
+            "Clipboard history"
+        }
+        clipboardChip.alpha = if (readOnly) 0.7f else 1f
     }
 
     fun update(suggestion: OsSuggestion) {

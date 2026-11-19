@@ -23,6 +23,10 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
     var onPaste: ((String) -> Unit)? = null
 
     private val listHost: LinearLayout
+    private val clearButton: TextView
+    private val noteView: TextView
+    /** Incognito: pasting is allowed, but nothing is recorded or modified. */
+    private var readOnly = false
 
     init {
         orientation = LinearLayout.VERTICAL
@@ -38,7 +42,7 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Theme.palette(context).keyText)
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(TextView(context).apply {
+            clearButton = TextView(context).apply {
                 text = "Clear"
                 textSize = 13f
                 setTextColor(Theme.palette(context).accent)
@@ -47,9 +51,19 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                     Prefs.clearClipboardHistory(context)
                     refresh()
                 }
-            })
+            }
+            addView(clearButton)
         }
         addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        noteView = TextView(context).apply {
+            textSize = 12f
+            setTextColor(Theme.palette(context).keyTextHint)
+            setPadding(dp(10), 0, dp(10), dp(6))
+            visibility = View.GONE
+        }
+        addView(noteView, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         listHost = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -77,39 +91,59 @@ class ClipboardPanel(context: Context) : LinearLayout(context) {
                 setTextColor(Theme.palette(context).keyText)
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-            addView(TextView(context).apply {
-                text = if (item.pinned) "📌" else "○"
-                textSize = 14f
-                setPadding(dp(8), 0, dp(8), 0)
-                setOnClickListener {
-                    Prefs.toggleClipboardPin(context, item.id)
-                    refresh()
-                }
-            })
+            if (!readOnly) {
+                addView(TextView(context).apply {
+                    text = if (item.pinned) "📌" else "○"
+                    textSize = 14f
+                    setPadding(dp(8), 0, dp(8), 0)
+                    contentDescription = "Pin or unpin"
+                    setOnClickListener {
+                        Prefs.toggleClipboardPin(context, item.id)
+                        refresh()
+                    }
+                })
 
-            addView(TextView(context).apply {
-                text = "✕"
-                textSize = 14f
-                setTextColor(Theme.palette(context).keyTextHint)
-                setPadding(dp(8), 0, dp(8), 0)
-                setOnClickListener {
-                    Prefs.removeClipboardItem(context, item.id)
-                    refresh()
-                }
-            })
+                addView(TextView(context).apply {
+                    text = "✕"
+                    textSize = 14f
+                    setTextColor(Theme.palette(context).keyTextHint)
+                    setPadding(dp(8), 0, dp(8), 0)
+                    contentDescription = "Remove entry"
+                    setOnClickListener {
+                        Prefs.removeClipboardItem(context, item.id)
+                        refresh()
+                    }
+                })
+            }
 
             isClickable = true
             setOnClickListener { onPaste?.invoke(item.text) }
         }
     }
 
+    /** Switches between editable history and incognito's paste-only view. */
+    fun setReadOnly(value: Boolean) {
+        if (readOnly == value) return
+        readOnly = value
+        refresh()
+    }
+
     /** Rebuilds the list from prefs. */
     fun refresh() {
+        clearButton.visibility = if (readOnly) View.GONE else View.VISIBLE
+        noteView.visibility = if (readOnly) View.VISIBLE else View.GONE
+        if (readOnly) {
+            noteView.text = "Incognito: paste-only. Nothing you copy now is saved here."
+        }
         listHost.removeAllViews()
         val items = Prefs.clipboardItems(context)
         if (items.isEmpty()) {
             listHost.addView(TextView(context).apply {
-                text = "Nothing copied yet.\nCopy text anywhere — it will show up here (stored only on this device)."
+                text = if (readOnly) {
+                    "Nothing to paste yet.\nCopied text is not recorded while incognito is on."
+                } else {
+                    "Nothing copied yet.\nCopy text anywhere — it will show up here (stored only on this device)."
+                }
                 textSize = 13f
                 setTextColor(Theme.palette(context).keyTextHint)
                 setPadding(dp(12), dp(14), dp(12), dp(8))
