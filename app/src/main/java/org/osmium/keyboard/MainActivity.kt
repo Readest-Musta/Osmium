@@ -166,20 +166,32 @@ class MainActivity : Activity() {
         }
     }
 
-    /** True when Osmium appears in the system's enabled-IME list. */
-    private fun isOsmiumEnabled(): Boolean {
+    /**
+     * True when Osmium appears in the enabled-IME list. Read through
+     * InputMethodManager: on Android 14+ reading Settings.Secure.ENABLED_INPUT_METHODS
+     * throws SecurityException for apps targeting SDK 35, which hard-crashed
+     * every onResume of this screen.
+     */
+    private fun isOsmiumEnabled(): Boolean = try {
         val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
-        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_INPUT_METHODS)
-            ?: return false
-        return enabled.split(':').any { it.equals(id, ignoreCase = true) }
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        SetupState.isEnabled(imm.enabledInputMethodList.map { it.id }, id)
+    } catch (_: Throwable) {
+        false
     }
 
-    /** True when Osmium is the currently selected input method. */
-    private fun isOsmiumDefault(): Boolean {
+    /**
+     * True when Osmium is the active input method. The secure setting is also
+     * restricted on newer Android versions, so failure means "unknown" (we show
+     * the neutral switch prompt) rather than a crash.
+     */
+    private fun isOsmiumDefault(): Boolean = try {
         val id = ComponentName(this, OsmiumImeService::class.java).flattenToString()
         val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
             ?: return false
-        return current.equals(id, ignoreCase = true)
+        current.equals(id, ignoreCase = true)
+    } catch (_: Throwable) {
+        false
     }
 
     /** Reflects real setup progress instead of showing the same two static buttons. */
