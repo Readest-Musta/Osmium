@@ -669,7 +669,6 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         insertTextSafely(code)
     }
 
-    /** Glide decoding lands in Phase B; for now remember the path for diagnostics. */
     /** Derived, bounded on-device learning state (no raw text stored). */
     private var learner = UserLexicon.decode(Prefs.learnerJson(this))
     private val recentWords = ArrayDeque<String>()
@@ -684,75 +683,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         Prefs.setLearnerJson(this, UserLexicon.encode(learner))
     }
 
-    private var glideDecoder: uniffi.osmium.OsGlideDecoder? = null
-    private var glideCandidates: List<uniffi.osmium.GlideCandidate> = emptyList()
+    // Native glide decoding is temporarily disabled while the on-device
+    // decoder is stabilised. Path sampling and local learning stay in place.
+    override fun onGlideSample(points: List<GlidePoint>) = guarded { }
 
-    private fun ensureGlideDecoder() {
-        if (glideDecoder != null) return
-        glideDecoder = try {
-            RitiEngine.ensureData(this)
-            uniffi.osmium.OsGlideDecoder(
-                File(filesDir, "riti").absolutePath,
-                File(cacheDir, "glide-decoder").absolutePath,
-                "avro_phonetic",
-            )
-        } catch (_: Throwable) {
-            null
-        }
-    }
+    override fun onGlideEnd() = guarded { }
 
-    /** Decodes a sampled path; no-op when the option is off or the decoder failed. */
-    private fun decodeGlide(points: List<GlidePoint>) {
-        if (!Prefs.glideTyping(this) || currentFieldAsciiOnly || mode != KeyboardMode.AVRO) return
-        ensureGlideDecoder()
-        val decoder = glideDecoder ?: return
-        val ic = currentInputConnection ?: return
-        glideCandidates = decoder.recognize(
-            points.map { uniffi.osmium.GlidePoint(it.x.toDouble(), it.y.toDouble()) },
-            keyboardView?.glideKeys().orEmpty().map {
-                uniffi.osmium.GlideKey(it.code, it.cx.toDouble(), it.cy.toDouble(),
-                    it.halfW.toDouble(), it.halfH.toDouble())
-            },
-            recentWords.toList(),
-            learner.words.map { (word, stat) ->
-                uniffi.osmium.WordWeight(word, stat.count.coerceAtMost(100).toDouble() / 100.0)
-            },
-            learner.weights.map { it.toDouble() },
-        )
-        val top = glideCandidates.firstOrNull()?.word ?: return
-        if (engine.isSessionActive()) clearComposition(ic)
-        ic.setComposingText(top, 1)
-        lastComposed = top
-    }
-
-    override fun onGlideSample(points: List<GlidePoint>) = guarded {
-        decodeGlide(points)
-    }
-
-    override fun onGlideEnd() = guarded {
-        val ic = currentInputConnection ?: return@guarded
-        if (glideCandidates.isEmpty()) return@guarded
-        val winner = glideCandidates.firstOrNull()?.word ?: return@guarded
-        ic.beginBatchEdit()
-        try {
-            if (lastComposed != null) ic.setComposingText("", 1)
-            ic.finishComposingText()
-            ic.commitText(winner, 1)
-        } finally {
-            ic.endBatchEdit()
-        }
-        noteCommitted(winner)
-        recordLearning(winner)
-        lastComposed = null
-        glideCandidates = emptyList()
-    }
-
-    override fun onGlideCancel() = guarded {
-        lastComposed?.let { currentInputConnection?.setComposingText("", 1) }
-        currentInputConnection?.finishComposingText()
-        lastComposed = null
-        glideCandidates = emptyList()
-    }
+    override fun onGlideCancel() = guarded { }
 
     /** The popup's "more" chip: jump straight to the full Symbols picker. */
     override fun onSymbolsRequested() = guarded {
