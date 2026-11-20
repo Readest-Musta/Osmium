@@ -138,6 +138,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        learner = UserLexicon.decode(Prefs.learnerJson(this))
         engine = RitiEngine(this)
         mode = when (Prefs.banglaScheme(this)) {
             "probhat" -> KeyboardMode.PROBHAT
@@ -655,7 +656,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var lastGlidePointCount = 0
 
     /** Derived, bounded on-device learning state (no raw text stored). */
-    private var learner = UserLexicon.decode(Prefs.learnerJson(this))
+    // Must be initialised in onCreate(): field initializers run before Android
+    // attaches the Context, and getSharedPreferences() would crash the process.
+    private lateinit var learner: UserLexicon.State
     private val recentWords = ArrayDeque<String>()
 
     private fun recordLearning(word: String) {
