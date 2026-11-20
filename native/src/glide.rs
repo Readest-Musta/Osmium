@@ -64,6 +64,7 @@ pub struct OsGlideDecoder {
 
 impl OsGlideDecoder {
     pub fn new(database_dir: String, _user_dir: String, layout: String) -> Self {
+        crate::install_panic_hook();
         let mut dictionary = HashSet::new();
         if let Ok(raw) = std::fs::read_to_string(format!("{}/dictionary.json", database_dir)) {
             // Extract every quoted string and keep Bengali-script words. This is

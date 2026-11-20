@@ -104,6 +104,24 @@ fn starts_with_bengali(text: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Records Rust panics to shared storage. Native aborts bypass Java's
+/// uncaught-exception handler, so this is the only way to see them on device.
+pub(crate) fn install_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/sdcard/Download/osmium-native-crash.txt")
+            {
+                use std::io::Write;
+                let _ = writeln!(file, "PANIC: {}", info);
+            }
+        }));
+    });
+}
+
 /// A configured riti input context.
 ///
 /// riti's internal state is not thread-safe (RefCell), so we serialize all
@@ -119,6 +137,7 @@ pub struct OsRiti {
 
 impl OsRiti {
     pub fn new(database_dir: String, user_dir: String, layout: String) -> Self {
+        install_panic_hook();
         ensure_home(&user_dir);
         let config = build_config(&database_dir, &user_dir, &layout);
         OsRiti {
