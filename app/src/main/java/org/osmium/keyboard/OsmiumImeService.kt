@@ -136,8 +136,26 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var undoSnapshot: String? = null
     private var redoSnapshot: String? = null
 
+    /** Temporary: records the exact IME crash trace to shared Downloads. */
+    private fun installImeCrashReporter() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                val dir = java.io.File("/sdcard/Download")
+                if (dir.exists()) {
+                    java.io.File(dir, "osmium-ime-crash.txt").writeText(
+                        "Thread: ${thread.name}\n${error.stackTraceToString()}"
+                    )
+                }
+            } catch (_: Throwable) {
+            }
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        installImeCrashReporter()
         engine = RitiEngine(this)
         mode = when (Prefs.banglaScheme(this)) {
             "probhat" -> KeyboardMode.PROBHAT
