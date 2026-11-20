@@ -171,7 +171,7 @@ impl OsRiti {
 /// riti's `Config::default()` resolves the fallback user dir from
 /// XDG_DATA_HOME/HOME and unwraps — but Android IME processes have neither
 /// env var set, which would panic. Seed HOME if missing.
-fn ensure_home(user_dir: &str) {
+pub(crate) fn ensure_home(user_dir: &str) {
     if std::env::var_os("HOME").is_none() {
         std::env::set_var("HOME", user_dir);
     }

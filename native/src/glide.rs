@@ -98,6 +98,9 @@ impl OsGlideDecoder {
         let scratch = std::env::temp_dir()
             .join(format!("osmium-glide-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&scratch);
+        // riti's Config::default() unwraps HOME; Android IME processes have no
+        // HOME env, so seed it exactly as OsRiti::new does or we panic/abort.
+        crate::ensure_home(scratch.to_string_lossy().as_ref());
         let mut config = Config::default();
         config.set_database_dir(&database_dir);
         config.set_user_dir(&scratch.to_string_lossy());
