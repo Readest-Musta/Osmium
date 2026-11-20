@@ -136,6 +136,19 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     private var undoSnapshot: String? = null
     private var redoSnapshot: String? = null
 
+    /** Temporary lifecycle probe: survives native aborts and system kills. */
+    private fun trace(stage: String) {
+        try {
+            val dir = java.io.File("/sdcard/Download")
+            if (dir.exists()) {
+                java.io.File(dir, "osmium-ime-trace.txt").appendText(
+                    "${System.currentTimeMillis()} $stage\n"
+                )
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
     /** Temporary: records the exact IME crash trace to shared Downloads. */
     private fun installImeCrashReporter() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -155,6 +168,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        trace("onCreate-start")
         installImeCrashReporter()
         engine = RitiEngine(this)
         mode = when (Prefs.banglaScheme(this)) {
@@ -165,6 +179,7 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // The system subtype, when reported via onCurrentInputMethodSubtypeChanged,
         // overrides this initial choice (English / Probhat / Avro).
         layoutFor(mode)?.let { engine.useLayout(it) }
+        trace("onCreate-end")
     }
 
     override fun onCurrentInputMethodSubtypeChanged(subtype: InputMethodSubtype?) {
@@ -211,8 +226,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onCreateInputView(): View {
+        trace("onCreateInputView-start")
         return try {
-            buildInputView()
+            buildInputView().also { trace("onCreateInputView-end") }
         } catch (t: Throwable) {
             // Never leave the user with a blank keyboard — show a recoverable error.
             errorShowing = true
@@ -428,11 +444,13 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
+        trace("onStartInputView-start")
         super.onStartInputView(info, restarting)
         // A scheme chosen in the Settings screen must take effect without a
         // process restart. Reconcile it before rebuilding so the fresh view is
         // labelled and laid out for the new mode.
         reconcileScheme()
+        trace("after-reconcile")
         // One unified signal covers every view-affecting preference (theme,
         // timings, haptics, glide, scheme, ...). Also recover automatically if
         // the error/retry view was showing when this field gained focus.
@@ -473,7 +491,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         // Numeric/phone fields get a compact literal-keypad panel; every other
         // field gets the normal keyboard. Closing any previous panel here also
         // clears its transient state via setPanelState().
+        trace("before-panel-state")
         setPanelState(panelForField(info.inputType))
+        trace("after-panel-state")
         resetDoubleSpace()
         recentCommitted.clear()
         recentWords.clear()
@@ -483,7 +503,9 @@ class OsmiumImeService : InputMethodService(), KeyboardView.Listener {
         val pkg = if (android.os.Build.VERSION.SDK_INT >= 28) currentInputEditorInfo?.packageName else null
         directCommitMode = EditorCompat.needsDirectCommit(pkg, info.inputType)
         autoCapitalizeIfNeeded()
+        trace("before-capture-clipboard")
         captureClipboard()
+        trace("onStartInputView-end")
     }
 
     override fun onWindowShown() {
